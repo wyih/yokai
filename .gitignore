@@ -18,3 +18,6 @@ weblate.conf
 /ios/.build/
 /ios/*.log
 /ios/Yokai.xcodeproj/xcuserdata/
+/ios/ReadingHub/build/
+/ios/ReadingHub/.build/
+/ios/ReadingHub/ReadingHub.xcodeproj/

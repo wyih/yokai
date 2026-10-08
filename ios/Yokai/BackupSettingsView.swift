@@ -20,7 +20,7 @@ struct BackupSettingsView: View {
     @State private var error: String?
     @State private var restored = false
     @State private var working = false
-    @AppStorage("backup.format") private var format = "android"
+    @AppStorage("backup.format", store: YokaiStorage.defaults) private var format = "android"
     @State private var appPreferences = true
     @State private var sourcePreferences = true
     @State private var exportName = "Yokai"

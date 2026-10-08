@@ -17,7 +17,7 @@ enum NativeBackup {
         var backup = NativeShelfBackup(shelf: library.snapshot())
         backup.details = Dictionary(uniqueKeysWithValues: library.books.compactMap { book in library.cachedDetails(for: book).map { (book.id, $0) } })
         if appPreferences {
-            let defaults = UserDefaults.standard.persistentDomain(forName: Bundle.main.bundleIdentifier ?? "com.wyih.yokai") ?? [:]
+            let defaults = YokaiStorage.defaults.persistentDomain(forName: YokaiStorage.preferencesDomain) ?? [:]
             backup.preferences = try PropertyListSerialization.data(fromPropertyList: defaults.filter { allowed($0.key) }, format: .binary, options: 0)
         }
         if sourcePreferences { await extensions.start(); backup.sourcePreferences = try await SourceEngine.call("exportSourcePreferences", as: [AndroidSourcePreferences].self) }

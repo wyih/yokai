@@ -20,9 +20,9 @@ enum ReaderImageActions {
 }
 
 struct ReaderColorFilter: ViewModifier {
-    @AppStorage("reader.colorFilter") private var enabled = false
-    @AppStorage("reader.colorFilterValue") private var value = 0
-    @AppStorage("reader.colorFilterMode") private var mode = 0
+    @AppStorage("reader.colorFilter", store: YokaiStorage.defaults) private var enabled = false
+    @AppStorage("reader.colorFilterValue", store: YokaiStorage.defaults) private var value = 0
+    @AppStorage("reader.colorFilterMode", store: YokaiStorage.defaults) private var mode = 0
     private var blend: BlendMode {
         switch mode { case 1: .multiply; case 2: .screen; case 3: .overlay; case 4: .lighten; case 5: .darken; default: .normal }
     }
@@ -39,9 +39,9 @@ struct ReaderColorFilter: ViewModifier {
 }
 
 struct ReaderColorSettingsView: View {
-    @AppStorage("reader.colorFilter") private var enabled = false
-    @AppStorage("reader.colorFilterValue") private var value = 0
-    @AppStorage("reader.colorFilterMode") private var mode = 0
+    @AppStorage("reader.colorFilter", store: YokaiStorage.defaults) private var enabled = false
+    @AppStorage("reader.colorFilterValue", store: YokaiStorage.defaults) private var value = 0
+    @AppStorage("reader.colorFilterMode", store: YokaiStorage.defaults) private var mode = 0
     private func component(_ shift: Int) -> Binding<Double> {
         Binding(get: { Double((UInt32(truncatingIfNeeded: value) >> shift) & 255) }, set: { newValue in
             let old = UInt32(truncatingIfNeeded: value)

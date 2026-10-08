@@ -84,7 +84,7 @@ struct SourceDetailsView: View {
                         let book = ensureBook()
                         let adding = !inLibrary
                         library.setFavorite(!inLibrary, bookID: book.id)
-                        if adding, UserDefaults.standard.string(forKey: "library.defaultCategory") == "ask" { choosingCategory = true }
+                        if adding, YokaiStorage.defaults.string(forKey: "library.defaultCategory") == "ask" { choosingCategory = true }
                     } label: {
                         Label(inLibrary ? "已在书架" : "加入书架",
                               systemImage: inLibrary ? "heart.fill" : "heart")
@@ -170,7 +170,7 @@ struct SourceDetailsView: View {
             }
         }
         .task {
-            if let data = UserDefaults.standard.data(forKey: displayKey),
+            if let data = YokaiStorage.defaults.data(forKey: displayKey),
                let saved = try? JSONDecoder().decode(ChapterDisplayOptions.self, from: data) { options = saved }
             if let book = currentBook {
                 details = library.cachedDetails(for: book)
@@ -181,7 +181,7 @@ struct SourceDetailsView: View {
             await load()
         }
         .onChange(of: options) { _, value in
-            if let data = try? JSONEncoder().encode(value) { UserDefaults.standard.set(data, forKey: displayKey) }
+            if let data = try? JSONEncoder().encode(value) { YokaiStorage.defaults.set(data, forKey: displayKey) }
         }
         .onChange(of: library.changeCount) { _, _ in rebuildProgress() }
         .sheet(isPresented: $showFilters) { chapterFilters }
@@ -352,7 +352,7 @@ struct SourceDetailsView: View {
     }
     private func mark(_ chapters: [SourceChapter], completed: Bool) {
         let book = ensureBook(); library.markChapters(chapters, bookID: book.id, completed: completed)
-        if completed && UserDefaults.standard.bool(forKey: "downloads.removeAfterMarked") {
+        if completed && YokaiStorage.defaults.bool(forKey: "downloads.removeAfterMarked") {
             for chapter in chapters { downloads.deleteIfAllowed(bookID: book.id, chapterURL: chapter.url) }
         }
         chosenChapters = []; selectingChapters = false
@@ -368,7 +368,7 @@ struct SourceDetailsView: View {
             let result = try await SourceEngine.call("details", ["source": source.id, "manga": SourceEngine.object(information)], as: SourceDetails.self)
             let remaining = Set(result.chapters.map(\.url))
             let removed = allChapters.filter { !remaining.contains($0.url) && isDownloaded($0) }
-            switch UserDefaults.standard.integer(forKey: "downloads.removedPolicy") {
+            switch YokaiStorage.defaults.integer(forKey: "downloads.removedPolicy") {
             case 0: removedDownloads = removed
             case 2: for chapter in removed { downloads.deleteIfAllowed(bookID: bookID, chapterURL: chapter.url) }
             default: break

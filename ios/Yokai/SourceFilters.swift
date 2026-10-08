@@ -52,10 +52,10 @@ struct SavedSourceSearch: Codable, Identifiable {
     var query: String
     var filters: [SourceFilter]
     static func read(_ source: String) -> [Self] {
-        UserDefaults.standard.data(forKey: "source.savedSearches." + source).flatMap { try? JSONDecoder().decode([Self].self, from: $0) } ?? []
+        YokaiStorage.defaults.data(forKey: "source.savedSearches." + source).flatMap { try? JSONDecoder().decode([Self].self, from: $0) } ?? []
     }
     static func save(_ searches: [Self], source: String) {
-        if let data = try? JSONEncoder().encode(searches) { UserDefaults.standard.set(data, forKey: "source.savedSearches." + source) }
+        if let data = try? JSONEncoder().encode(searches) { YokaiStorage.defaults.set(data, forKey: "source.savedSearches." + source) }
     }
 }
 
@@ -66,10 +66,10 @@ struct GlobalSearchView: View {
     @State private var errors: [String: String] = [:]
     @State private var searching: Task<Void, Never>?
     @State private var busy = false
-    @AppStorage("sources.searchPinnedOnly") private var pinnedOnly = false
+    @AppStorage("sources.searchPinnedOnly", store: YokaiStorage.defaults) private var pinnedOnly = false
     private var sources: [MangaSource] {
-        let pinned = UserDefaults.standard.stringArray(forKey: "sources.pinned") ?? []
-        let hidden = UserDefaults.standard.stringArray(forKey: "sources.hidden") ?? []
+        let pinned = YokaiStorage.defaults.stringArray(forKey: "sources.pinned") ?? []
+        let hidden = YokaiStorage.defaults.stringArray(forKey: "sources.hidden") ?? []
         return extensions.sources.filter { $0.error == nil && !hidden.contains($0.id) && (!pinnedOnly || pinned.contains($0.id)) }
     }
     var body: some View {

@@ -49,7 +49,7 @@ extension LocalUIFixture {
             }
             passed.append(name)
         }
-        let file = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("UIFixture/brightness-check.json")
+        let file = YokaiStorage.documents.appendingPathComponent("UIFixture/brightness-check.json")
         do {
             controller.apply(enabled: false, value: 0.3)
             level = 0.65
@@ -118,7 +118,7 @@ extension LocalUIFixture {
                 try page.pngData()!.write(to: directory.appendingPathComponent(String(format: "%06d", index)), options: .atomic)
             }
         }
-        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let documents = YokaiStorage.documents
         try Data((previewScreen ?? "").utf8).write(to: documents.appendingPathComponent("UIFixture/preview-ready"), options: .atomic)
     }
 }

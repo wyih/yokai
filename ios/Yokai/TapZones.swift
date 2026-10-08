@@ -42,15 +42,15 @@ struct TapZones {
 
 struct TapZoneSettingsView: View {
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("tapZones.pager.preset") private var pagerPreset = "default"
-    @AppStorage("tapZones.webtoon.preset") private var webtoonPreset = "default"
-    @AppStorage("tapZones.pager.invert") private var pagerInvert = "none"
-    @AppStorage("tapZones.webtoon.invert") private var webtoonInvert = "none"
-    @AppStorage("tapZones.layout") private var layout = "columns"
-    @AppStorage("tapZones.actions") private var actions = TapZones.defaults
-    @AppStorage("tapZones.followDirection") private var followDirection = true
-    @AppStorage("readerMode") private var mode = "vertical"
-    @AppStorage("rightToLeft") private var rightToLeft = true
+    @AppStorage("tapZones.pager.preset", store: YokaiStorage.defaults) private var pagerPreset = "default"
+    @AppStorage("tapZones.webtoon.preset", store: YokaiStorage.defaults) private var webtoonPreset = "default"
+    @AppStorage("tapZones.pager.invert", store: YokaiStorage.defaults) private var pagerInvert = "none"
+    @AppStorage("tapZones.webtoon.invert", store: YokaiStorage.defaults) private var webtoonInvert = "none"
+    @AppStorage("tapZones.layout", store: YokaiStorage.defaults) private var layout = "columns"
+    @AppStorage("tapZones.actions", store: YokaiStorage.defaults) private var actions = TapZones.defaults
+    @AppStorage("tapZones.followDirection", store: YokaiStorage.defaults) private var followDirection = true
+    @AppStorage("readerMode", store: YokaiStorage.defaults) private var mode = "vertical"
+    @AppStorage("rightToLeft", store: YokaiStorage.defaults) private var rightToLeft = true
     @State private var continuous = true
     private var preset: Binding<String> { Binding(get: { continuous ? webtoonPreset : pagerPreset }, set: { if continuous { webtoonPreset = $0 } else { pagerPreset = $0 } }) }
     private var invert: Binding<String> { Binding(get: { continuous ? webtoonInvert : pagerInvert }, set: { if continuous { webtoonInvert = $0 } else { pagerInvert = $0 } }) }

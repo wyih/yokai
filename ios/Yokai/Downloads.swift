@@ -39,7 +39,7 @@ final class DownloadStore: ObservableObject {
     private let monitor = NWPathMonitor()
     private var extensionObserver: AnyCancellable?
     init(directory: URL? = nil) {
-        file = (directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]).appendingPathComponent("downloads.json")
+        file = (directory ?? YokaiStorage.support).appendingPathComponent("downloads.json")
         jobs = (try? JSONDecoder().decode([ChapterDownload].self, from: Data(contentsOf: file))) ?? []
         for i in jobs.indices where jobs[i].state == .downloading { jobs[i].state = .queued }
         for i in jobs.indices where jobs[i].state == .paused && jobs[i].error == "后台时间已结束，将在回到 App 后继续。" { jobs[i].interruption = .backgroundTime }
@@ -112,14 +112,14 @@ final class DownloadStore: ObservableObject {
     }
     func deleteIfAllowed(bookID: String, chapterURL: String) {
         guard let library, let book = library.books.first(where: { $0.id == bookID }) else { return }
-        let excluded = UserDefaults.standard.stringArray(forKey: "downloads.removeExcludedCategories") ?? []
+        let excluded = YokaiStorage.defaults.stringArray(forKey: "downloads.removeExcludedCategories") ?? []
         if (book.categories ?? []).contains(where: { excluded.contains($0) }) { return }
-        if !UserDefaults.standard.bool(forKey: "downloads.removeBookmarks"),
+        if !YokaiStorage.defaults.bool(forKey: "downloads.removeBookmarks"),
            book.chapters?.first(where: { $0.url == chapterURL })?.bookmarked == true || book.bookmarks.contains(where: { !$0.deleted && $0.chapterURL == chapterURL }) { return }
         deleteChapter(bookID: bookID, chapterURL: chapterURL)
     }
     func leftChapter(bookID: String, chapterURL: String?, order: [String]) {
-        let slots = UserDefaults.standard.object(forKey: "downloads.removeAfterRead") as? Int ?? -1
+        let slots = YokaiStorage.defaults.object(forKey: "downloads.removeAfterRead") as? Int ?? -1
         guard slots >= 0, let chapterURL, let index = order.firstIndex(of: chapterURL), index >= slots,
               let library, let book = library.books.first(where: { $0.id == bookID }) else { return }
         let candidate = order[index - slots]
@@ -165,7 +165,7 @@ final class DownloadStore: ObservableObject {
             if continued.active && !continued.contains(job.id) { return false }
             if !continued.active && backgroundTask == .invalid { return false }
         }
-        return job.forReading == true || wifi || !UserDefaults.standard.bool(forKey: "downloads.wifiOnly")
+        return job.forReading == true || wifi || !YokaiStorage.defaults.bool(forKey: "downloads.wifiOnly")
     }
     private func resumeWorker() {
         guard library != nil, extensions?.busy == false, !backgroundExpired else { return }
@@ -219,7 +219,7 @@ final class DownloadStore: ObservableObject {
                 }
             }
             guard canContinue(job.id), ready.count == pages.count else { return }
-            if UserDefaults.standard.bool(forKey: "downloads.saveCBZ") {
+            if YokaiStorage.defaults.bool(forKey: "downloads.saveCBZ") {
                 let archive = try await Task.detached {
                     if ChapterArchive.hasCompleteArchive(directory: directory, count: pages.count) { return directory.appendingPathComponent("chapter.cbz") }
                     return try ChapterArchive.create(directory: directory, count: pages.count)
@@ -352,14 +352,14 @@ struct DownloadsView: View {
 
 struct DownloadSettingsView: View {
     @EnvironmentObject private var library: ComicLibrary
-    @AppStorage("downloads.wifiOnly") private var wifi = false
-    @AppStorage("downloads.saveCBZ") private var cbz = false
-    @AppStorage("downloads.newChapters") private var newChapters = false
-    @AppStorage("downloads.aheadChapters") private var ahead = 0
-    @AppStorage("downloads.removeAfterRead") private var removal = -1
-    @AppStorage("downloads.removeAfterMarked") private var marked = false
-    @AppStorage("downloads.removeBookmarks") private var bookmarks = false
-    @AppStorage("downloads.removedPolicy") private var removed = 0
+    @AppStorage("downloads.wifiOnly", store: YokaiStorage.defaults) private var wifi = false
+    @AppStorage("downloads.saveCBZ", store: YokaiStorage.defaults) private var cbz = false
+    @AppStorage("downloads.newChapters", store: YokaiStorage.defaults) private var newChapters = false
+    @AppStorage("downloads.aheadChapters", store: YokaiStorage.defaults) private var ahead = 0
+    @AppStorage("downloads.removeAfterRead", store: YokaiStorage.defaults) private var removal = -1
+    @AppStorage("downloads.removeAfterMarked", store: YokaiStorage.defaults) private var marked = false
+    @AppStorage("downloads.removeBookmarks", store: YokaiStorage.defaults) private var bookmarks = false
+    @AppStorage("downloads.removedPolicy", store: YokaiStorage.defaults) private var removed = 0
     @State private var excluded: [String] = []
     var body: some View {
         Form {
@@ -374,13 +374,13 @@ struct DownloadSettingsView: View {
                 Picker("阅读后删除", selection: $removal) { Text("从不").tag(-1); Text("离开已读章节时").tag(0); ForEach(1...4, id: \.self) { Text("保留最近 \($0) 个已读章节").tag($0) } }
                 Toggle("允许删除有书签的章节", isOn: $bookmarks)
                 ForEach(library.categoryNames, id: \.self) { category in
-                    Toggle("保留“\(category)”的下载", isOn: Binding(get: { excluded.contains(category) }, set: { value in if value { excluded.append(category) } else { excluded.removeAll { $0 == category } }; UserDefaults.standard.set(excluded, forKey: "downloads.removeExcludedCategories") }))
+                    Toggle("保留“\(category)”的下载", isOn: Binding(get: { excluded.contains(category) }, set: { value in if value { excluded.append(category) } else { excluded.removeAll { $0 == category } }; YokaiStorage.defaults.set(excluded, forKey: "downloads.removeExcludedCategories") }))
                 }
             }
             Section("图源删除的章节") {
                 Picker("下载处理", selection: $removed) { Text("在章节页询问").tag(0); Text("始终保留").tag(1); Text("自动删除下载").tag(2) }
             }
         }.navigationTitle("下载设置")
-        .task { excluded = UserDefaults.standard.stringArray(forKey: "downloads.removeExcludedCategories") ?? [] }
+        .task { excluded = YokaiStorage.defaults.stringArray(forKey: "downloads.removeExcludedCategories") ?? [] }
     }
 }

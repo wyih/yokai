@@ -9,16 +9,16 @@ struct SourcesView: View {
     @State private var showingMore = false
     @State private var configuringSource: MangaSource?
     @State private var query = ""
-    @State private var pinned = UserDefaults.standard.stringArray(forKey: "sources.pinned") ?? []
-    @State private var hidden = UserDefaults.standard.stringArray(forKey: "sources.hidden") ?? []
+    @State private var pinned = YokaiStorage.defaults.stringArray(forKey: "sources.pinned") ?? []
+    @State private var hidden = YokaiStorage.defaults.stringArray(forKey: "sources.hidden") ?? []
     @State private var language = "all"
     @State private var showHidden = false
     @State private var addingRepository = false
     @State private var repositoryName = ""
     @State private var repositoryURL = ""
     @State private var uninstalling: InstalledExtension?
-    @AppStorage("extensions.autoCheck") private var autoCheck = false
-    @AppStorage("extensions.autoInstall") private var autoInstall = false
+    @AppStorage("extensions.autoCheck", store: YokaiStorage.defaults) private var autoCheck = false
+    @AppStorage("extensions.autoInstall", store: YokaiStorage.defaults) private var autoInstall = false
     private var sources: [MangaSource] {
         extensions.sources.filter {
             (showHidden || !hidden.contains($0.id)) && (language == "all" || $0.lang == language)
@@ -48,8 +48,8 @@ struct SourcesView: View {
                                     }
                                     Button("图源设置", systemImage: "gearshape") { configuringSource = source }.labelStyle(.iconOnly).buttonStyle(.borderless)
                                 }.contextMenu {
-                                    Button(pinned.contains(source.id) ? "取消置顶" : "置顶") { toggle(source.id, in: &pinned); UserDefaults.standard.set(pinned, forKey: "sources.pinned") }
-                                    Button(hidden.contains(source.id) ? "显示" : "隐藏") { toggle(source.id, in: &hidden); UserDefaults.standard.set(hidden, forKey: "sources.hidden") }
+                                    Button(pinned.contains(source.id) ? "取消置顶" : "置顶") { toggle(source.id, in: &pinned); YokaiStorage.defaults.set(pinned, forKey: "sources.pinned") }
+                                    Button(hidden.contains(source.id) ? "显示" : "隐藏") { toggle(source.id, in: &hidden); YokaiStorage.defaults.set(hidden, forKey: "sources.hidden") }
                                 }
                             }
                         }

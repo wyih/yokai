@@ -16,9 +16,9 @@ struct LibraryDisplayOptions: Codable, Equatable {
     var showSource = false
     var showCount = true
     static func load() -> Self {
-        UserDefaults.standard.data(forKey: "library.display").flatMap { try? JSONDecoder().decode(Self.self, from: $0) } ?? Self()
+        YokaiStorage.defaults.data(forKey: "library.display").flatMap { try? JSONDecoder().decode(Self.self, from: $0) } ?? Self()
     }
-    func save() { if let data = try? JSONEncoder().encode(self) { UserDefaults.standard.set(data, forKey: "library.display") } }
+    func save() { if let data = try? JSONEncoder().encode(self) { YokaiStorage.defaults.set(data, forKey: "library.display") } }
 }
 
 struct LibraryView: View {
@@ -44,7 +44,7 @@ struct LibraryView: View {
     @State private var metrics: [String: ShelfBookMetrics] = [:]
     private var shelf: [ComicBook] { library.books.filter { $0.inLibrary != false } }
     private var books: [ComicBook] {
-        let manual = UserDefaults.standard.stringArray(forKey: "library.manualOrder") ?? []
+        let manual = YokaiStorage.defaults.stringArray(forKey: "library.manualOrder") ?? []
         return shelf.filter { book in
             let text = [book.title, book.mangaInfo?.author, book.mangaInfo?.artist, book.mangaInfo?.genre].compactMap { $0 }.joined(separator: " ")
             let m = metrics[book.id] ?? ShelfBookMetrics()
@@ -107,7 +107,7 @@ struct LibraryView: View {
                                 ForEach(group.1) { book in row(book) }
                                     .onMove { from, to in
                                         var order = books.map(\.id); order.move(fromOffsets: from, toOffset: to)
-                                        UserDefaults.standard.set(order, forKey: "library.manualOrder"); rebuildMetrics()
+                                        YokaiStorage.defaults.set(order, forKey: "library.manualOrder"); rebuildMetrics()
                                     }
                             }
                         }
@@ -253,7 +253,7 @@ struct LibraryView: View {
             do {
                 if let (_, details) = try await getDetails(book) {
                     library.markChapters(details.chapters, bookID: book.id, completed: completed)
-                    if completed && UserDefaults.standard.bool(forKey: "downloads.removeAfterMarked") {
+                    if completed && YokaiStorage.defaults.bool(forKey: "downloads.removeAfterMarked") {
                         for chapter in details.chapters { downloads.deleteIfAllowed(bookID: book.id, chapterURL: chapter.url) }
                     }
                 }
@@ -320,7 +320,7 @@ struct CategoryManagerView: View {
     @State private var old: String?
     @State private var editingName = false
     @State private var deleting: String?
-    @AppStorage("library.defaultCategory") private var defaultCategory = ""
+    @AppStorage("library.defaultCategory", store: YokaiStorage.defaults) private var defaultCategory = ""
     var body: some View {
         List {
             Section {

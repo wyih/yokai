@@ -1,28 +1,77 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+@MainActor
+final class YokaiSession: ObservableObject {
+    let library: ComicLibrary
+    let sync: WebDAVSync
+    let extensions = ExtensionStore()
+    let downloads = DownloadStore()
+    let activity = LibraryActivity()
+    @Published var incomingBackup: URL?
+    init() {
+        library = ComicLibrary()
+        sync = WebDAVSync(library: library)
+    }
+    func start() async {
+        #if READING_HUB && DEBUG && targetEnvironment(simulator)
+        // The upstream simulator VM cannot initialize its code cache.
+        // Host UI tests exercise routing here; plugins are verified on iPhone.
+        if ProcessInfo.processInfo.arguments.contains("--reader-host-ui-test") { return }
+        #endif
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        await extensions.start(); downloads.connect(library: library, extensions: extensions)
+        #if DEBUG && targetEnvironment(simulator)
+        LocalUIFixture.checkReaderBrightness()
+        if LocalUIFixture.previewScreen != nil { try? LocalUIFixture.preparePreviewImages(library: library) }
+        if LocalUIFixture.enabled { await LocalUIFixture.checkFiles(library: library, extensions: extensions); await LocalUIFixture.checkDownloads(extensions: extensions); await LocalUIFixture.checkTachimanga(extensions: extensions) }
+        if LocalPerformanceCheck.enabled { await LocalPerformanceCheck.run() }
+        #endif
+        await maintain()
+    }
+    func maintain() async {
+        await AppMaintenance.perform(library: library, extensions: extensions, downloads: downloads, activity: activity)
+    }
+    func open(_ url: URL) async {
+        guard url.isFileURL else { return }
+        if ["apk", "jar"].contains(url.pathExtension.lowercased()) { await extensions.start(); await extensions.importExtension(url) }
+        else if ["tachibk", "gz", "json", "tmb"].contains(url.pathExtension.lowercased()) { incomingBackup = url }
+        else { await library.importFiles([url]) }
+    }
+    func phase(_ phase: ScenePhase) {
+        if phase != .active {
+            Task {
+                let background = UIApplication.shared.beginBackgroundTask(withName: "保存阅读进度")
+                defer { if background != .invalid { UIApplication.shared.endBackgroundTask(background) } }
+                do { try await library.flushPendingSaves() }
+                catch { library.errorMessage = "书架保存失败：" + error.localizedDescription }
+            }
+        }
+        if phase == .active { sync.schedule(); downloads.foreground(); Task { await maintain() } }
+        if phase == .background { downloads.beginBackground(); AppMaintenance.schedule() }
+    }
+}
+
+#if !READING_HUB
 @main
 struct YokaiApp: App {
     @UIApplicationDelegateAdaptor(YokaiApplicationDelegate.self) private var appDelegate
-    @StateObject private var library: ComicLibrary
-    @StateObject private var sync: WebDAVSync
-    @StateObject private var extensions = ExtensionStore()
-    @StateObject private var downloads = DownloadStore()
-    @StateObject private var activity = LibraryActivity()
-    @Environment(\.scenePhase) private var scenePhase
-    @AppStorage("appearance") private var appearance = "system"
-    @AppStorage("accent") private var accent = "purple"
-    @State private var incomingBackup: URL?
-    @State private var selectedTab = 0
-
-    init() {
-        let library = ComicLibrary()
-        _library = StateObject(wrappedValue: library)
-        _sync = StateObject(wrappedValue: WebDAVSync(library: library))
-        #if DEBUG && targetEnvironment(simulator)
-        if LocalUIFixture.previewScreen == "sources" { _selectedTab = State(initialValue: 2) }
-        #endif
+    @StateObject private var session = YokaiSession()
+    var body: some Scene {
+        WindowGroup { YokaiRootView(session: session) }
+        .backgroundTask(.appRefresh(AppMaintenance.identifier)) {
+            await session.maintain(); await AppMaintenance.schedule()
+        }
     }
+}
+#endif
+
+struct YokaiRootView: View {
+    @ObservedObject var session: YokaiSession
+    @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("appearance", store: YokaiStorage.defaults) private var appearance = "system"
+    @AppStorage("accent", store: YokaiStorage.defaults) private var accent = "purple"
+    @State private var selectedTab = 0
     private var tabs: some View {
         TabView(selection: $selectedTab) {
             LibraryView().tabItem { Label("书架", systemImage: "books.vertical") }.tag(0)
@@ -32,58 +81,31 @@ struct YokaiApp: App {
     }
     @ViewBuilder private var content: some View {
         #if DEBUG && targetEnvironment(simulator)
-        if let screen = LocalUIFixture.previewScreen, !["library", "sources"].contains(screen) {
-            LocalPreviewView(screen: screen)
-        } else { tabs }
+        if let screen = LocalUIFixture.previewScreen, !["library", "sources"].contains(screen) { LocalPreviewView(screen: screen) }
+        else { tabs }
         #else
         tabs
         #endif
     }
-    var body: some Scene {
-        WindowGroup {
-            content.environmentObject(library).environmentObject(sync).environmentObject(extensions).environmentObject(downloads).environmentObject(activity)
-                .tint(accent == "blue" ? .blue : accent == "green" ? .green : accent == "orange" ? .orange : .purple)
-                .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
-                .task {
-                    UIDevice.current.isBatteryMonitoringEnabled = true
-                    await extensions.start(); downloads.connect(library: library, extensions: extensions)
-                    #if DEBUG && targetEnvironment(simulator)
-                    LocalUIFixture.checkReaderBrightness()
-                    if LocalUIFixture.previewScreen != nil { try? LocalUIFixture.preparePreviewImages(library: library) }
-                    if LocalUIFixture.enabled { await LocalUIFixture.checkFiles(library: library, extensions: extensions) }
-                    if LocalUIFixture.enabled { await LocalUIFixture.checkDownloads(extensions: extensions) }
-                    if LocalUIFixture.enabled { await LocalUIFixture.checkTachimanga(extensions: extensions) }
-                    if LocalPerformanceCheck.enabled { await LocalPerformanceCheck.run() }
-                    #endif
-                    await AppMaintenance.perform(library: library, extensions: extensions, downloads: downloads, activity: activity)
-                }
-                .onOpenURL { url in Task {
-                    if ["apk", "jar"].contains(url.pathExtension.lowercased()) { await extensions.start(); await extensions.importExtension(url) }
-                    else if ["tachibk", "gz", "json", "tmb"].contains(url.pathExtension.lowercased()) { incomingBackup = url }
-                    else { await library.importFiles([url]) }
-                } }
-                .sheet(isPresented: Binding(get: { incomingBackup != nil }, set: { if !$0 { incomingBackup = nil } })) {
-                    NavigationStack { BackupSettingsView(incomingURL: incomingBackup).toolbar { Button("完成") { incomingBackup = nil } } }
-                        .environmentObject(library).environmentObject(extensions)
-                }
-                .onChange(of: library.changeCount) { _, _ in sync.schedule() }
-                .onChange(of: scenePhase) { _, phase in
-                    if phase != .active {
-                        Task {
-                            let background = UIApplication.shared.beginBackgroundTask(withName: "保存阅读进度")
-                            defer { if background != .invalid { UIApplication.shared.endBackgroundTask(background) } }
-                            do { try await library.flushPendingSaves() }
-                            catch { library.errorMessage = "书架保存失败：" + error.localizedDescription }
-                        }
-                    }
-                    if phase == .active { sync.schedule(); downloads.foreground(); Task { await AppMaintenance.perform(library: library, extensions: extensions, downloads: downloads, activity: activity) } }
-                    if phase == .background { downloads.beginBackground(); AppMaintenance.schedule() }
-                }
-        }
-        .backgroundTask(.appRefresh(AppMaintenance.identifier)) {
-            await AppMaintenance.perform(library: library, extensions: extensions, downloads: downloads, activity: activity)
-            await AppMaintenance.schedule()
-        }
+    var body: some View {
+        content.environmentObject(session.library).environmentObject(session.sync).environmentObject(session.extensions).environmentObject(session.downloads).environmentObject(session.activity)
+            .tint(accent == "blue" ? .blue : accent == "green" ? .green : accent == "orange" ? .orange : .purple)
+            .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
+            .task {
+                #if DEBUG && targetEnvironment(simulator)
+                if LocalUIFixture.previewScreen == "sources" { selectedTab = 2 }
+                #endif
+                await session.start()
+            }
+            #if !READING_HUB
+            .onOpenURL { url in Task { await session.open(url) } }
+            .onChange(of: scenePhase) { _, phase in session.phase(phase) }
+            #endif
+            .sheet(isPresented: Binding(get: { session.incomingBackup != nil }, set: { if !$0 { session.incomingBackup = nil } })) {
+                NavigationStack { BackupSettingsView(incomingURL: session.incomingBackup).toolbar { Button("完成") { session.incomingBackup = nil } } }
+                    .environmentObject(session.library).environmentObject(session.extensions)
+            }
+            .onChange(of: session.library.changeCount) { _, _ in session.sync.schedule() }
     }
 }
 
@@ -110,6 +132,14 @@ struct MoreView: View {
     var body: some View {
         NavigationStack {
             List {
+                #if READING_HUB
+                Section {
+                    Button("切换阅读器", systemImage: "square.grid.2x2") {
+                        dismiss()
+                        NotificationCenter.default.post(name: Notification.Name("ReadingHubHome"), object: nil)
+                    }
+                }
+                #endif
                 Section {
                     NavigationLink { DownloadsView() } label: { Label("下载队列", systemImage: "arrow.down.circle") }
                     NavigationLink { BackupSettingsView() } label: { Label("备份与恢复", systemImage: "externaldrive") }
@@ -123,10 +153,10 @@ struct MoreView: View {
 }
 
 private struct SettingsView: View {
-    @AppStorage("readerMode") private var mode = "webtoon"
-    @AppStorage("rightToLeft") private var rightToLeft = true
-    @AppStorage("appearance") private var appearance = "system"
-    @AppStorage("accent") private var accent = "purple"
+    @AppStorage("readerMode", store: YokaiStorage.defaults) private var mode = "webtoon"
+    @AppStorage("rightToLeft", store: YokaiStorage.defaults) private var rightToLeft = true
+    @AppStorage("appearance", store: YokaiStorage.defaults) private var appearance = "system"
+    @AppStorage("accent", store: YokaiStorage.defaults) private var accent = "purple"
 
     var body: some View {
             Form {

@@ -5,7 +5,11 @@ import UIKit
 /// library updates and reader prefetching do not create continued-processing UI.
 @MainActor
 final class DownloadBackgroundExecution {
+    #if READING_HUB
+    static let identifier = (Bundle.main.bundleIdentifier ?? "com.wyih.qiyereader") + ".yokai.download"
+    #else
     static let identifier = "com.wyih.yokai.download"
+    #endif
     private var requestIdentifier: String?
     private var task: BGTask?
     private var members = Set<String>()

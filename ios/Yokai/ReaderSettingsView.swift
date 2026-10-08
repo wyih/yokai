@@ -56,36 +56,36 @@ struct MangaReaderSettingsView: View {
 }
 
 struct ReaderDefaultsView: View {
-    @AppStorage("readerMode") private var mode = "webtoon"
-    @AppStorage("reader.doublePage") private var doublePage = false
-    @AppStorage("reader.layout") private var layout = "automatic"
-    @AppStorage("reader.splitPortrait") private var splitPortrait = false
-    @AppStorage("reader.invertDoublePages") private var invertDoublePages = false
-    @AppStorage("reader.shiftDoublePage") private var shiftDoublePage = false
-    @AppStorage("reader.webtoonSplit") private var webtoonSplit = false
-    @AppStorage("reader.webtoonInvertDoublePages") private var webtoonInvert = false
-    @AppStorage("reader.scale") private var scale = "fit"
-    @AppStorage("reader.orientation") private var orientation = "free"
-    @AppStorage("reader.zoomStart") private var zoomStart = "auto"
-    @AppStorage("reader.animate") private var animate = true
-    @AppStorage("trimBorders") private var trim = false
-    @AppStorage("reader.keepAwake") private var awake = true
-    @AppStorage("reader.fullscreen") private var fullscreen = true
-    @AppStorage("reader.showPageNumber") private var numbers = true
-    @AppStorage("reader.skipRead") private var skipRead = false
-    @AppStorage("reader.skipFiltered") private var skipFiltered = false
-    @AppStorage("reader.skipDuplicate") private var skipDuplicate = true
-    @AppStorage("reader.grayscale") private var grayscale = false
-    @AppStorage("reader.inverted") private var inverted = false
-    @AppStorage("reader.sidePadding") private var padding = 0
-    @AppStorage("reader.customBrightness") private var customBrightness = false
-    @AppStorage("reader.brightness") private var brightness = 0.5
-    @AppStorage("reader.longTap") private var longTap = true
-    @AppStorage("reader.webtoonDoubleTap") private var doubleTap = true
-    @AppStorage("reader.webtoonZoomOut") private var zoomOut = false
-    @AppStorage("readerBackground") private var background = "black"
-    @AppStorage("autoScrollSpeed") private var speed = 40.0
-    @AppStorage("downloads.aheadChapters") private var ahead = 0
+    @AppStorage("readerMode", store: YokaiStorage.defaults) private var mode = "webtoon"
+    @AppStorage("reader.doublePage", store: YokaiStorage.defaults) private var doublePage = false
+    @AppStorage("reader.layout", store: YokaiStorage.defaults) private var layout = "automatic"
+    @AppStorage("reader.splitPortrait", store: YokaiStorage.defaults) private var splitPortrait = false
+    @AppStorage("reader.invertDoublePages", store: YokaiStorage.defaults) private var invertDoublePages = false
+    @AppStorage("reader.shiftDoublePage", store: YokaiStorage.defaults) private var shiftDoublePage = false
+    @AppStorage("reader.webtoonSplit", store: YokaiStorage.defaults) private var webtoonSplit = false
+    @AppStorage("reader.webtoonInvertDoublePages", store: YokaiStorage.defaults) private var webtoonInvert = false
+    @AppStorage("reader.scale", store: YokaiStorage.defaults) private var scale = "fit"
+    @AppStorage("reader.orientation", store: YokaiStorage.defaults) private var orientation = "free"
+    @AppStorage("reader.zoomStart", store: YokaiStorage.defaults) private var zoomStart = "auto"
+    @AppStorage("reader.animate", store: YokaiStorage.defaults) private var animate = true
+    @AppStorage("trimBorders", store: YokaiStorage.defaults) private var trim = false
+    @AppStorage("reader.keepAwake", store: YokaiStorage.defaults) private var awake = true
+    @AppStorage("reader.fullscreen", store: YokaiStorage.defaults) private var fullscreen = true
+    @AppStorage("reader.showPageNumber", store: YokaiStorage.defaults) private var numbers = true
+    @AppStorage("reader.skipRead", store: YokaiStorage.defaults) private var skipRead = false
+    @AppStorage("reader.skipFiltered", store: YokaiStorage.defaults) private var skipFiltered = false
+    @AppStorage("reader.skipDuplicate", store: YokaiStorage.defaults) private var skipDuplicate = true
+    @AppStorage("reader.grayscale", store: YokaiStorage.defaults) private var grayscale = false
+    @AppStorage("reader.inverted", store: YokaiStorage.defaults) private var inverted = false
+    @AppStorage("reader.sidePadding", store: YokaiStorage.defaults) private var padding = 0
+    @AppStorage("reader.customBrightness", store: YokaiStorage.defaults) private var customBrightness = false
+    @AppStorage("reader.brightness", store: YokaiStorage.defaults) private var brightness = 0.5
+    @AppStorage("reader.longTap", store: YokaiStorage.defaults) private var longTap = true
+    @AppStorage("reader.webtoonDoubleTap", store: YokaiStorage.defaults) private var doubleTap = true
+    @AppStorage("reader.webtoonZoomOut", store: YokaiStorage.defaults) private var zoomOut = false
+    @AppStorage("readerBackground", store: YokaiStorage.defaults) private var background = "black"
+    @AppStorage("autoScrollSpeed", store: YokaiStorage.defaults) private var speed = 40.0
+    @AppStorage("downloads.aheadChapters", store: YokaiStorage.defaults) private var ahead = 0
     var body: some View {
         Form {
             Section("阅读") {

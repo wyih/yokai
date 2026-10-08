@@ -43,7 +43,7 @@ final class WebDAVSync: ObservableObject {
 
     init(library: ComicLibrary) {
         self.library = library
-        let defaults = UserDefaults.standard
+        let defaults = YokaiStorage.defaults
         if let data = defaults.data(forKey: "webdavConfiguration"),
            let stored = try? JSONDecoder().decode(DAVConfiguration.self, from: data) { configuration = stored }
         if let data = defaults.data(forKey: "webdavBaseline"),
@@ -58,7 +58,7 @@ final class WebDAVSync: ObservableObject {
         try DAVPassword.write(secret)
         if candidate.identity != configuration.identity { baselines = [:]; choices = [:]; conflicts = []; lastSync = nil }
         configuration = candidate
-        let defaults = UserDefaults.standard
+        let defaults = YokaiStorage.defaults
         defaults.set(try JSONEncoder().encode(candidate), forKey: "webdavConfiguration")
         defaults.set(try JSONEncoder().encode(baselines), forKey: "webdavBaseline")
         defaults.set(lastSync, forKey: "webdavLastSync")
@@ -100,8 +100,8 @@ final class WebDAVSync: ObservableObject {
                 library.acceptSync(result.state, captured: captured)
                 choices = [:]
                 lastSync = Date()
-                UserDefaults.standard.set(try JSONEncoder().encode(baselines), forKey: "webdavBaseline")
-                UserDefaults.standard.set(lastSync, forKey: "webdavLastSync")
+                YokaiStorage.defaults.set(try JSONEncoder().encode(baselines), forKey: "webdavBaseline")
+                YokaiStorage.defaults.set(lastSync, forKey: "webdavLastSync")
                 message = nil
                 return
             }

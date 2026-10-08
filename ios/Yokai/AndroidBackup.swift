@@ -153,7 +153,7 @@ enum AndroidBackupService {
             }
         }
         if let native {
-            for (key, value) in preferences { UserDefaults.standard.set(value, forKey: key) }
+            for (key, value) in preferences { YokaiStorage.defaults.set(value, forKey: key) }
             if sourcePreferences, let records = native.sourcePreferences {
                 await extensions.start()
                 let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(records))
@@ -179,7 +179,7 @@ enum AndroidBackupService {
     private static let categoryPreferenceKeys = ["library_update_categories": "library.updateCategories", "library_update_categories_exclude": "library.updateExcludedCategories",
         "download_new_categories": "downloads.newCategories", "download_new_categories_exclude": "downloads.newExcludedCategories", "remove_exclude_categories": "downloads.removeExcludedCategories"]
     static func restoreAppPreferences(_ preferences: [AndroidPreference], categories: [AndroidShelfBackup.Category] = []) {
-        let defaults = UserDefaults.standard
+        let defaults = YokaiStorage.defaults
         for preference in preferences {
             if let key = preferenceKeys[preference.key] { defaults.set(preference.value.object, forKey: key) }
             if let key = categoryPreferenceKeys[preference.key], case .strings(let orders) = preference.value {
@@ -216,7 +216,7 @@ enum AndroidBackupService {
         }
     }
     private static func appPreferences(categoryNames: [String]) -> [[String: Any]] {
-        let defaults = UserDefaults.standard
+        let defaults = YokaiStorage.defaults
         var values: [[String: Any]] = preferenceKeys.compactMap { android, ios in
             guard let value = defaults.object(forKey: ios) else { return nil }
             return ["key": android, "type": value is NSNumber && CFGetTypeID(value as CFTypeRef) == CFBooleanGetTypeID() ? "boolean" : "int", "value": value]

@@ -16,7 +16,7 @@ struct ChapterUpdate: Codable, Identifiable {
     var updates: [ChapterUpdate] { state.updates.sorted { $0.foundAt > $1.foundAt } }
     var checkedAt: Date? { state.checkedAt }
     init() {
-        file = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("activity.json")
+        file = YokaiStorage.support.appendingPathComponent("activity.json")
         if let data = try? Data(contentsOf: file), let saved = try? JSONDecoder().decode(State.self, from: data) { state = saved }
     }
     func refresh(library: ComicLibrary, extensions: ExtensionStore, downloads: DownloadStore, automatic: Bool = false) async {
@@ -44,12 +44,12 @@ struct ChapterUpdate: Codable, Identifiable {
                         additions.append(chapter)
                     }
                 }
-                if UserDefaults.standard.bool(forKey: "downloads.newChapters"), shouldDownload(book) {
+                if YokaiStorage.defaults.bool(forKey: "downloads.newChapters"), shouldDownload(book) {
                     for chapter in additions.reversed() where book.chapters?.first(where: { $0.url == chapter.url })?.completed != true {
                         downloads.enqueue(source: source, manga: result.manga, chapter: chapter, userInitiated: false)
                     }
                 }
-                if UserDefaults.standard.integer(forKey: "downloads.removedPolicy") == 2, let old {
+                if YokaiStorage.defaults.integer(forKey: "downloads.removedPolicy") == 2, let old {
                     let remaining = Set(result.chapters.map(\.url))
                     for chapter in old where !remaining.contains(chapter.url) { downloads.deleteIfAllowed(bookID: book.id, chapterURL: chapter.url) }
                 }
@@ -63,7 +63,7 @@ struct ChapterUpdate: Codable, Identifiable {
         catch { errors.append(error.localizedDescription) }
     }
     private func shouldUpdate(_ book: ComicBook) -> Bool {
-        let defaults = UserDefaults.standard, categories = book.categories ?? []
+        let defaults = YokaiStorage.defaults, categories = book.categories ?? []
         let included = defaults.stringArray(forKey: "library.updateCategories") ?? []
         let excluded = defaults.stringArray(forKey: "library.updateExcludedCategories") ?? []
         if !included.isEmpty && !categories.contains(where: included.contains) { return false }
@@ -73,7 +73,7 @@ struct ChapterUpdate: Codable, Identifiable {
         return true
     }
     private func shouldDownload(_ book: ComicBook) -> Bool {
-        let defaults = UserDefaults.standard, categories = book.categories ?? []
+        let defaults = YokaiStorage.defaults, categories = book.categories ?? []
         let included = defaults.stringArray(forKey: "downloads.newCategories") ?? []
         let excluded = defaults.stringArray(forKey: "downloads.newExcludedCategories") ?? []
         return (included.isEmpty || categories.contains(where: included.contains)) && !categories.contains(where: excluded.contains)

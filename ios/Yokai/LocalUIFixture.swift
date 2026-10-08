@@ -7,7 +7,7 @@ import ZIPFoundation
 // launch argument is only for checking the native screens against local fixtures.
 enum LocalUIFixture {
     static var enabled: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiLocalUIFixture") }
-    private static var root: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("UIFixture") }
+    private static var root: URL { YokaiStorage.documents.appendingPathComponent("UIFixture") }
     @MainActor private static var activeImages = 0
     @MainActor private static var maxImages = 0
     @MainActor private static var imageRequests: [Int: Int] = [:]
@@ -59,7 +59,7 @@ enum LocalUIFixture {
         guard ProcessInfo.processInfo.arguments.contains("-YokaiLocalDownloadCheck") else { return }
         let output = root.appendingPathComponent("download-check.json")
         let folder = root.appendingPathComponent("DownloadCheck")
-        let defaults = UserDefaults.standard
+        let defaults = YokaiStorage.defaults
         let oldWifi = defaults.object(forKey: "downloads.wifiOnly"), oldCBZ = defaults.object(forKey: "downloads.saveCBZ")
         defaults.set(false, forKey: "downloads.wifiOnly"); defaults.set(true, forKey: "downloads.saveCBZ")
         defer {

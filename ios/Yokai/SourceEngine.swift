@@ -115,9 +115,9 @@ final class ExtensionStore: ObservableObject {
 
     init() {
         let data = try? Data(contentsOf: Bundle.main.url(forResource: "ExtensionRepositories", withExtension: "json")!)
-        let saved = UserDefaults.standard.data(forKey: "extension.repositories")
+        let saved = YokaiStorage.defaults.data(forKey: "extension.repositories")
         repositories = (saved ?? data).flatMap { try? JSONDecoder().decode([ExtensionRepository].self, from: $0) } ?? []
-        root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Extensions", isDirectory: true)
+        root = YokaiStorage.support.appendingPathComponent("Extensions", isDirectory: true)
         metadata = root.appendingPathComponent("installed.json")
     }
 
@@ -163,7 +163,7 @@ final class ExtensionStore: ObservableObject {
         repositories.append(ExtensionRepository(name: name.isEmpty ? url.host! : name, url: url.absoluteString, catalogURL: catalog)); saveRepositories()
     }
     func removeRepository(_ id: String) { repositories.removeAll { $0.id == id }; catalog.removeAll { $0.repository == id }; updates.removeAll { $0.repository == id }; saveRepositories() }
-    private func saveRepositories() { if let data = try? JSONEncoder().encode(repositories) { UserDefaults.standard.set(data, forKey: "extension.repositories") } }
+    private func saveRepositories() { if let data = try? JSONEncoder().encode(repositories) { YokaiStorage.defaults.set(data, forKey: "extension.repositories") } }
     func uninstall(_ package: String) async {
         guard !busy, let extensionFile = installed.first(where: { $0.package == package }) else { return }
         busy = true; defer { busy = false }
@@ -176,7 +176,7 @@ final class ExtensionStore: ObservableObject {
     }
 
     func automaticUpdatesIfDue() async {
-        let defaults = UserDefaults.standard
+        let defaults = YokaiStorage.defaults
         guard defaults.bool(forKey: "extensions.autoCheck"), !busy,
               Date().timeIntervalSince(defaults.object(forKey: "extensions.lastCheck") as? Date ?? .distantPast) >= 86400 else { return }
         await checkUpdates(); defaults.set(Date(), forKey: "extensions.lastCheck")

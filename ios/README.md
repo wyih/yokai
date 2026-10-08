@@ -21,6 +21,8 @@ Native iOS port under active development. The intended baseline is the original 
 
 ## Build and install
 
+The optional native [ReadingHub host](ReadingHub/README.md) composes this implementation with qiye-reader, preserving both standalone build targets. Its direct installation reuses the existing Qiye bundle identity and keeps the two libraries in separate storage namespaces.
+
 `./build-ipa.sh` prepares pinned runtime dependencies and produces a development-signed `build/Yokai.ipa`, without needing a connected phone. `./build-ipa.sh --upload-livecontainer` copies it to the installed LiveContainer's Documents directory; import it in LiveContainer and replace `com.wyih.yokai.app` to retain its data. `--install-direct` is for devices with a free independent signing slot. `YOKAI_TEAM`, `YOKAI_DEVICE`, `YOKAI_CONTAINER`, and `YOKAI_DESTINATION` override local defaults. The default build destination is generic iOS. Personal Team provisioning requires periodic renewal.
 
 Runtime preparation lives in `Runtime/prepare.py` and `Runtime/dependencies.json`. A JDK 23 BasicImageWriter creates a format-1.0 jimage compatible with the mobile runtime; the app bundles no exploded `.class` files, which prevents LiveContainer's signer from mistaking Java bytecode for Mach-O fat binaries. OpenJDK's required JNI symbols are retained using `-all_load`. Runtime and dependency notices are bundled under `Notices`.

@@ -3,18 +3,25 @@ import BackgroundTasks
 
 @MainActor
 enum AppMaintenance {
+    #if READING_HUB
+    static let identifier = (Bundle.main.bundleIdentifier ?? "com.wyih.qiyereader") + ".yokai.refresh"
+    #else
     static let identifier = "com.wyih.yokai.refresh"
+    #endif
     private static var running = false
     static func perform(library: ComicLibrary, extensions: ExtensionStore, downloads: DownloadStore, activity: LibraryActivity) async {
         #if DEBUG && targetEnvironment(simulator)
         if LocalUIFixture.enabled { return }
+        #if READING_HUB
+        if ProcessInfo.processInfo.arguments.contains("--reader-host-ui-test") { return }
+        #endif
         #endif
         guard !running else { return }; running = true; defer { running = false }
         await extensions.start()
         guard !extensions.busy else { return }
         downloads.connect(library: library, extensions: extensions)
         if Task.isCancelled { return }
-        let defaults = UserDefaults.standard
+        let defaults = YokaiStorage.defaults
         let hours = defaults.object(forKey: "library.updateHours") as? Int ?? 24
         let charging = UIDevice.current.batteryState == .charging || UIDevice.current.batteryState == .full
         if hours > 0, Date().timeIntervalSince(activity.checkedAt ?? .distantPast) >= Double(hours) * 3600,
@@ -28,7 +35,7 @@ enum AppMaintenance {
         await AutomaticBackups.createIfDue(library: library, extensions: extensions)
     }
     static func schedule() {
-        let defaults = UserDefaults.standard
+        let defaults = YokaiStorage.defaults
         let periods = [defaults.object(forKey: "library.updateHours") as? Int ?? 24, defaults.integer(forKey: "backup.hours"), defaults.bool(forKey: "extensions.autoCheck") ? 24 : 0].filter { $0 > 0 }
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
         guard let hours = periods.min() else { return }
@@ -42,17 +49,17 @@ enum AppMaintenance {
 @MainActor
 enum AutomaticBackups {
     static func folder() throws -> (URL, Bool) {
-        if let bookmark = UserDefaults.standard.data(forKey: "backup.folder") {
+        if let bookmark = YokaiStorage.defaults.data(forKey: "backup.folder") {
             var stale = false
             let url = try URL(resolvingBookmarkData: bookmark, bookmarkDataIsStale: &stale)
             let access = url.startAccessingSecurityScopedResource()
-            if stale { UserDefaults.standard.set(try url.bookmarkData(), forKey: "backup.folder") }
+            if stale { YokaiStorage.defaults.set(try url.bookmarkData(), forKey: "backup.folder") }
             return (url, access)
         }
-        return (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Backups"), false)
+        return (YokaiStorage.documents.appendingPathComponent("Backups"), false)
     }
     static func createIfDue(library: ComicLibrary, extensions: ExtensionStore, force: Bool = false) async {
-        let defaults = UserDefaults.standard, hours = UserDefaults.standard.integer(forKey: "backup.hours")
+        let defaults = YokaiStorage.defaults, hours = YokaiStorage.defaults.integer(forKey: "backup.hours")
         guard force || (hours > 0 && Date().timeIntervalSince(defaults.object(forKey: "backup.lastCreated") as? Date ?? .distantPast) >= Double(hours) * 3600) else { return }
         guard !library.books.isEmpty || !library.categories.isEmpty else { return }
         do {
@@ -84,22 +91,22 @@ struct CategoryPreferencePicker: View {
                 ForEach(library.categoryNames, id: \.self) { category in
                     Toggle(category, isOn: Binding(get: { selected.contains(category) }, set: { enabled in
                         if enabled { selected.append(category) } else { selected.removeAll { $0 == category } }
-                        UserDefaults.standard.set(selected, forKey: key)
+                        YokaiStorage.defaults.set(selected, forKey: key)
                     }))
                 }
                 if library.categoryNames.isEmpty { Text("尚未创建分类").foregroundStyle(.secondary) }
             }.navigationTitle(title)
-        }.task { selected = UserDefaults.standard.stringArray(forKey: key) ?? [] }
+        }.task { selected = YokaiStorage.defaults.stringArray(forKey: key) ?? [] }
     }
 }
 
 struct LibraryUpdateSettingsView: View {
-    @AppStorage("library.updateHours") private var hours = 24
-    @AppStorage("library.updateWifi") private var wifi = false
-    @AppStorage("library.updateCharging") private var charging = false
-    @AppStorage("library.skipCompleted") private var completed = false
-    @AppStorage("library.skipUnread") private var unread = false
-    @AppStorage("maintenance.error") private var error = ""
+    @AppStorage("library.updateHours", store: YokaiStorage.defaults) private var hours = 24
+    @AppStorage("library.updateWifi", store: YokaiStorage.defaults) private var wifi = false
+    @AppStorage("library.updateCharging", store: YokaiStorage.defaults) private var charging = false
+    @AppStorage("library.skipCompleted", store: YokaiStorage.defaults) private var completed = false
+    @AppStorage("library.skipUnread", store: YokaiStorage.defaults) private var unread = false
+    @AppStorage("maintenance.error", store: YokaiStorage.defaults) private var error = ""
     var body: some View {
         Form {
             Section("自动更新") {
@@ -120,9 +127,9 @@ struct LibraryUpdateSettingsView: View {
 struct AutomaticBackupSettingsView: View {
     @EnvironmentObject private var library: ComicLibrary
     @EnvironmentObject private var extensions: ExtensionStore
-    @AppStorage("backup.hours") private var hours = 0
-    @AppStorage("backup.keep") private var keep = 5
-    @AppStorage("backup.error") private var error = ""
+    @AppStorage("backup.hours", store: YokaiStorage.defaults) private var hours = 0
+    @AppStorage("backup.keep", store: YokaiStorage.defaults) private var keep = 5
+    @AppStorage("backup.error", store: YokaiStorage.defaults) private var error = ""
     @State private var choosingFolder = false
     @State private var path = "本机 / Yōkai / Backups"
     @State private var working = false
@@ -133,16 +140,16 @@ struct AutomaticBackupSettingsView: View {
             Stepper("保留 \(keep) 份备份", value: $keep, in: 1...30)
             Button("备份目录") { choosingFolder = true }
             Text(path).font(.footnote).foregroundStyle(.secondary)
-            Button("使用本机默认目录") { UserDefaults.standard.removeObject(forKey: "backup.folder"); path = "本机 / Yōkai / Backups" }
-            Button("立即备份") { Task { working = true; await extensions.start(); await AutomaticBackups.createIfDue(library: library, extensions: extensions, force: true); date = UserDefaults.standard.object(forKey: "backup.lastCreated") as? Date; working = false } }.disabled(working)
+            Button("使用本机默认目录") { YokaiStorage.defaults.removeObject(forKey: "backup.folder"); path = "本机 / Yōkai / Backups" }
+            Button("立即备份") { Task { working = true; await extensions.start(); await AutomaticBackups.createIfDue(library: library, extensions: extensions, force: true); date = YokaiStorage.defaults.object(forKey: "backup.lastCreated") as? Date; working = false } }.disabled(working)
             if working { ProgressView() }
             if let date { LabeledContent("最近备份", value: date.formatted()) }
             if !error.isEmpty { Text(error).font(.footnote).foregroundStyle(.red) }
             Text("自动备份使用安卓格式，包含图源设置。后台执行时间由 iOS 安排。").font(.footnote).foregroundStyle(.secondary)
         }.navigationTitle("自动备份")
-        .task { date = UserDefaults.standard.object(forKey: "backup.lastCreated") as? Date; if let (folder, access) = try? AutomaticBackups.folder() { path = folder.path; if access { folder.stopAccessingSecurityScopedResource() } } }
+        .task { date = YokaiStorage.defaults.object(forKey: "backup.lastCreated") as? Date; if let (folder, access) = try? AutomaticBackups.folder() { path = folder.path; if access { folder.stopAccessingSecurityScopedResource() } } }
         .fileImporter(isPresented: $choosingFolder, allowedContentTypes: [.folder]) { result in
-            do { let url = try result.get(), access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }; UserDefaults.standard.set(try url.bookmarkData(), forKey: "backup.folder"); path = url.path }
+            do { let url = try result.get(), access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }; YokaiStorage.defaults.set(try url.bookmarkData(), forKey: "backup.folder"); path = url.path }
             catch { self.error = error.localizedDescription }
         }.onDisappear { AppMaintenance.schedule() }
     }

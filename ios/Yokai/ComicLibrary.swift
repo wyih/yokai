@@ -122,10 +122,10 @@ final class ComicLibrary: ObservableObject {
 
     init(root: URL? = nil) {
         let manager = FileManager.default
-        self.root = root ?? manager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        self.root = root ?? YokaiStorage.documents
             .appendingPathComponent("Comics", isDirectory: true)
         metadata = root != nil ? self.root.appendingPathComponent("library.json") :
-            manager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            YokaiStorage.support
                 .appendingPathComponent("library.json")
         writer = JSONFileWriter(file: metadata)
         coverCache.totalCostLimit = 32 * 1024 * 1024
@@ -295,7 +295,7 @@ final class ComicLibrary: ObservableObject {
         var book = ComicBook(id: id, title: manga.title, format: .images, pageCount: 1, importedAt: Date())
         book.origin = ComicOrigin(sourceID: source.id, mangaURL: manga.url, thumbnail: manga.thumbnail, mangaMemo: manga.memo)
         book.inLibrary = favorite
-        let category = UserDefaults.standard.string(forKey: "library.defaultCategory") ?? ""
+        let category = YokaiStorage.defaults.string(forKey: "library.defaultCategory") ?? ""
         if favorite, !category.isEmpty, category != "ask" { book.categories = [category] }
         books.insert(book, at: 0); deleted.removeValue(forKey: id); save()
         return book
@@ -304,7 +304,7 @@ final class ComicLibrary: ObservableObject {
     func setFavorite(_ favorite: Bool, bookID: String) {
         guard let index = books.firstIndex(where: { $0.id == bookID }) else { return }
         if favorite, books[index].inLibrary == false, (books[index].categories ?? []).isEmpty {
-            let category = UserDefaults.standard.string(forKey: "library.defaultCategory") ?? ""
+            let category = YokaiStorage.defaults.string(forKey: "library.defaultCategory") ?? ""
             if !category.isEmpty, category != "ask" { books[index].categories = [category] }
         }
         books[index].inLibrary = favorite; books[index].modifiedAt = Date(); save()
@@ -508,7 +508,7 @@ final class ComicLibrary: ObservableObject {
         for i in books.indices where books[i].categories?.contains(old) == true {
             books[i].categories = books[i].categories?.map { $0 == old ? name : $0 }; books[i].modifiedAt = Date()
         }
-        if UserDefaults.standard.string(forKey: "library.defaultCategory") == old { UserDefaults.standard.set(name, forKey: "library.defaultCategory") }
+        if YokaiStorage.defaults.string(forKey: "library.defaultCategory") == old { YokaiStorage.defaults.set(name, forKey: "library.defaultCategory") }
         save()
     }
 
@@ -517,7 +517,7 @@ final class ComicLibrary: ObservableObject {
         for i in books.indices where books[i].categories?.contains(name) == true {
             books[i].categories?.removeAll { $0 == name }; books[i].modifiedAt = Date()
         }
-        if UserDefaults.standard.string(forKey: "library.defaultCategory") == name { UserDefaults.standard.removeObject(forKey: "library.defaultCategory") }
+        if YokaiStorage.defaults.string(forKey: "library.defaultCategory") == name { YokaiStorage.defaults.removeObject(forKey: "library.defaultCategory") }
         save()
     }
 

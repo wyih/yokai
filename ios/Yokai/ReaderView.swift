@@ -13,36 +13,36 @@ struct ReaderView: View {
     @EnvironmentObject private var downloads: DownloadStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage("readerMode") private var defaultMode = "webtoon"
-    @AppStorage("rightToLeft") private var rightToLeft = true
-    @AppStorage("readerBackground") private var background = "black"
-    @AppStorage("trimBorders") private var trimBorders = false
-    @AppStorage("autoScrollSpeed") private var autoScrollSpeed = 40.0
-    @AppStorage("reader.doublePage") private var defaultDoublePage = false
-    @AppStorage("reader.layout") private var defaultLayout = "automatic"
-    @AppStorage("reader.splitPortrait") private var splitPortrait = false
-    @AppStorage("reader.invertDoublePages") private var invertDoublePages = false
-    @AppStorage("reader.shiftDoublePage") private var shiftDoublePage = false
-    @AppStorage("reader.webtoonSplit") private var webtoonSplit = false
-    @AppStorage("reader.webtoonInvertDoublePages") private var webtoonRightFirst = false
-    @AppStorage("reader.scale") private var defaultScale = "fit"
-    @AppStorage("reader.orientation") private var defaultOrientation = "free"
-    @AppStorage("reader.animate") private var animate = true
-    @AppStorage("reader.zoomStart") private var zoomStart = "auto"
-    @AppStorage("reader.skipRead") private var skipRead = false
-    @AppStorage("reader.skipFiltered") private var skipFiltered = false
-    @AppStorage("reader.skipDuplicate") private var skipDuplicate = true
-    @AppStorage("reader.keepAwake") private var keepAwake = true
-    @AppStorage("reader.fullscreen") private var fullscreen = true
-    @AppStorage("reader.showPageNumber") private var showPageNumber = true
-    @AppStorage("reader.grayscale") private var grayscale = false
-    @AppStorage("reader.inverted") private var inverted = false
-    @AppStorage("reader.sidePadding") private var sidePadding = 0
-    @AppStorage("reader.customBrightness") private var customBrightness = false
-    @AppStorage("reader.brightness") private var brightness = 0.5
-    @AppStorage("reader.webtoonDoubleTap") private var webtoonDoubleTap = true
-    @AppStorage("reader.webtoonZoomOut") private var webtoonZoomOut = false
-    @AppStorage("downloads.aheadChapters") private var aheadChapters = 0
+    @AppStorage("readerMode", store: YokaiStorage.defaults) private var defaultMode = "webtoon"
+    @AppStorage("rightToLeft", store: YokaiStorage.defaults) private var rightToLeft = true
+    @AppStorage("readerBackground", store: YokaiStorage.defaults) private var background = "black"
+    @AppStorage("trimBorders", store: YokaiStorage.defaults) private var trimBorders = false
+    @AppStorage("autoScrollSpeed", store: YokaiStorage.defaults) private var autoScrollSpeed = 40.0
+    @AppStorage("reader.doublePage", store: YokaiStorage.defaults) private var defaultDoublePage = false
+    @AppStorage("reader.layout", store: YokaiStorage.defaults) private var defaultLayout = "automatic"
+    @AppStorage("reader.splitPortrait", store: YokaiStorage.defaults) private var splitPortrait = false
+    @AppStorage("reader.invertDoublePages", store: YokaiStorage.defaults) private var invertDoublePages = false
+    @AppStorage("reader.shiftDoublePage", store: YokaiStorage.defaults) private var shiftDoublePage = false
+    @AppStorage("reader.webtoonSplit", store: YokaiStorage.defaults) private var webtoonSplit = false
+    @AppStorage("reader.webtoonInvertDoublePages", store: YokaiStorage.defaults) private var webtoonRightFirst = false
+    @AppStorage("reader.scale", store: YokaiStorage.defaults) private var defaultScale = "fit"
+    @AppStorage("reader.orientation", store: YokaiStorage.defaults) private var defaultOrientation = "free"
+    @AppStorage("reader.animate", store: YokaiStorage.defaults) private var animate = true
+    @AppStorage("reader.zoomStart", store: YokaiStorage.defaults) private var zoomStart = "auto"
+    @AppStorage("reader.skipRead", store: YokaiStorage.defaults) private var skipRead = false
+    @AppStorage("reader.skipFiltered", store: YokaiStorage.defaults) private var skipFiltered = false
+    @AppStorage("reader.skipDuplicate", store: YokaiStorage.defaults) private var skipDuplicate = true
+    @AppStorage("reader.keepAwake", store: YokaiStorage.defaults) private var keepAwake = true
+    @AppStorage("reader.fullscreen", store: YokaiStorage.defaults) private var fullscreen = true
+    @AppStorage("reader.showPageNumber", store: YokaiStorage.defaults) private var showPageNumber = true
+    @AppStorage("reader.grayscale", store: YokaiStorage.defaults) private var grayscale = false
+    @AppStorage("reader.inverted", store: YokaiStorage.defaults) private var inverted = false
+    @AppStorage("reader.sidePadding", store: YokaiStorage.defaults) private var sidePadding = 0
+    @AppStorage("reader.customBrightness", store: YokaiStorage.defaults) private var customBrightness = false
+    @AppStorage("reader.brightness", store: YokaiStorage.defaults) private var brightness = 0.5
+    @AppStorage("reader.webtoonDoubleTap", store: YokaiStorage.defaults) private var webtoonDoubleTap = true
+    @AppStorage("reader.webtoonZoomOut", store: YokaiStorage.defaults) private var webtoonZoomOut = false
+    @AppStorage("downloads.aheadChapters", store: YokaiStorage.defaults) private var aheadChapters = 0
     @State private var brightnessControl = ReaderBrightness()
     @State private var readerVisible = false
     @State private var oldIdleTimer = false
@@ -324,13 +324,13 @@ struct ReaderView: View {
     }
 
     @State private var configuringTapZones = false
-    @AppStorage("tapZones.layout") private var tapLayout = "columns"
-    @AppStorage("tapZones.actions") private var tapActions = TapZones.defaults
-    @AppStorage("tapZones.followDirection") private var tapFollowDirection = true
-    @AppStorage("tapZones.pager.preset") private var pagerPreset = "default"
-    @AppStorage("tapZones.webtoon.preset") private var webtoonPreset = "default"
-    @AppStorage("tapZones.pager.invert") private var pagerInvert = "none"
-    @AppStorage("tapZones.webtoon.invert") private var webtoonInvert = "none"
+    @AppStorage("tapZones.layout", store: YokaiStorage.defaults) private var tapLayout = "columns"
+    @AppStorage("tapZones.actions", store: YokaiStorage.defaults) private var tapActions = TapZones.defaults
+    @AppStorage("tapZones.followDirection", store: YokaiStorage.defaults) private var tapFollowDirection = true
+    @AppStorage("tapZones.pager.preset", store: YokaiStorage.defaults) private var pagerPreset = "default"
+    @AppStorage("tapZones.webtoon.preset", store: YokaiStorage.defaults) private var webtoonPreset = "default"
+    @AppStorage("tapZones.pager.invert", store: YokaiStorage.defaults) private var pagerInvert = "none"
+    @AppStorage("tapZones.webtoon.invert", store: YokaiStorage.defaults) private var webtoonInvert = "none"
 
     private func jump(to target: Int) {
         restoringPosition = true
@@ -397,7 +397,7 @@ struct ReaderView: View {
     private var orderedChapters: [SourceChapter] {
         let chapters = library.cachedDetails(for: book)?.chapters ?? []
         var options = ChapterDisplayOptions()
-        if let data = UserDefaults.standard.data(forKey: "chapters.display." + book.id), let saved = try? JSONDecoder().decode(ChapterDisplayOptions.self, from: data) { options = saved }
+        if let data = YokaiStorage.defaults.data(forKey: "chapters.display." + book.id), let saved = try? JSONDecoder().decode(ChapterDisplayOptions.self, from: data) { options = saved }
         if options.sort == "source" { return Array(chapters.reversed()) }
         return chapters.sorted { a, b in options.sort == "uploaded" ? a.uploaded < b.uploaded : a.number < b.number }
     }
@@ -406,7 +406,7 @@ struct ReaderView: View {
         var index = current + direction
         let original = orderedChapters[current]
         var filters = ChapterDisplayOptions()
-        if let data = UserDefaults.standard.data(forKey: "chapters.display." + book.id), let saved = try? JSONDecoder().decode(ChapterDisplayOptions.self, from: data) { filters = saved }
+        if let data = YokaiStorage.defaults.data(forKey: "chapters.display." + book.id), let saved = try? JSONDecoder().decode(ChapterDisplayOptions.self, from: data) { filters = saved }
         let progress = library.books.first { $0.id == book.id }?.chapters ?? []
         while orderedChapters.indices.contains(index) {
             let chapter = orderedChapters[index], state = progress.first { $0.url == chapter.url }
@@ -471,7 +471,7 @@ private struct ComicPage: View {
     var onDoubleTap: () -> Void = {}
     let onAction: (String, UIImage) -> Void
     let onTap: (CGPoint) -> Void
-    @AppStorage("reader.longTap") private var longTap = true
+    @AppStorage("reader.longTap", store: YokaiStorage.defaults) private var longTap = true
     @State private var image: UIImage?
     @State private var originalImage: UIImage?
     @State private var aspect: CGFloat = 1

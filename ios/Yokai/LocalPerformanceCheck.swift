@@ -7,7 +7,7 @@ enum LocalPerformanceCheck {
 
     @MainActor static func run() async {
         guard enabled else { return }
-        let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("UIFixture")
+        let root = YokaiStorage.documents.appendingPathComponent("UIFixture")
         let folder = root.appendingPathComponent("PerformanceCheck")
         do {
             let backup = try await Task.detached { try TachimangaBackup.read(root.appendingPathComponent("tachimanga.tmb")) }.value
