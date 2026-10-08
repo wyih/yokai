@@ -1,0 +1,7 @@
+[
+  {"name":"Keiyoushi","url":"https://github.com/keiyoushi/extensions/raw/repo/index.pb","catalogURL":"https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json"},
+  {"name":"CopyManga / stevenyomi","url":"https://raw.githubusercontent.com/stevenyomi/copymanga/repo/index.min.json","catalogURL":"https://raw.githubusercontent.com/stevenyomi/copymanga/repo/index.min.json"},
+  {"name":"zhongfly","url":"https://raw.githubusercontent.com/zhongfly/extensions-source/repo/index.pb","catalogURL":"https://raw.githubusercontent.com/zhongfly/extensions-source/repo/index.json"},
+  {"name":"anenasa","url":"https://raw.githubusercontent.com/anenasa/extensions/master/index.min.json","catalogURL":"https://raw.githubusercontent.com/anenasa/extensions/master/index.min.json"},
+  {"name":"bangxingni","url":"https://raw.githubusercontent.com/bangxingni/mycomic-extensions/main/index.min.json","catalogURL":"https://raw.githubusercontent.com/bangxingni/mycomic-extensions/main/index.min.json"}
+]

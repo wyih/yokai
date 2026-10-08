@@ -1,0 +1,58 @@
+{
+  "OpenJDK.xcframework.zip": {
+    "url": "https://github.com/openjdk-mobile/ios-tools/releases/download/snapshot/OpenJDK.xcframework.zip",
+    "sha256": "ae8e22142e45e5c1e9e8e3541829f3cc00584658eb21eeeb0d3612e3fbaf7c9f"
+  },
+  "java.base-device.zip": {
+    "url": "https://github.com/openjdk-mobile/ios-tools/releases/download/snapshot/java.base-device.zip",
+    "sha256": "af099f41010c4ceffd21231ae7d40b7c292190ab44c19616077545ae609f8c8d"
+  },
+  "openjdk27.tar.gz": {
+    "url": "https://download.java.net/java/GA/jdk27/55ce5470a6294008af0057ff4626d0e5/35/GPL/openjdk-27_macos-aarch64_bin.tar.gz",
+    "sha256": "ff42134c1bc5ac81c5a91a95fd4df87479db5d0499ba875d6adb5bda5626c3e8"
+  },
+  "suwayomi.jar": {
+    "url": "https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.4.2366/Suwayomi-Server-v2.4.2366.jar",
+    "sha256": "af9feb20af9d7ebe9e30769e6c6ebc7fc7ab1c447388d42e0280b1da5fe07bfd"
+  },
+  "openjdk23.tar.gz": {
+    "url": "https://download.java.net/java/GA/jdk23.0.2/6da2a6609d6e406f85c491fcb119101b/7/GPL/openjdk-23.0.2_macos-aarch64_bin.tar.gz",
+    "sha256": "bff699bb27455c2bb51d6e8f2467b77a4833388412aa2d95ec1970ddfb0e7b6c"
+  },
+  "vomic.jar": {
+    "url": "https://github.com/keiyoushi/extensions/releases/download/19c8e5f-2/tachiyomi-zh.vomic-v1.4.6.jar",
+    "sha256": "69da62838f34e7527ce9a3b35289b421fd95e0192fefd6b3dcaaf366bf756078"
+  },
+  "bakamh.jar": {
+    "url": "https://github.com/keiyoushi/extensions/releases/download/aa14252/tachiyomi-zh.bakamh-v1.6.65.jar",
+    "sha256": "457b9c4d87f0ea9e8d0f7ec4abf7c093dc9c38911cba145015913c039ceb4ad0"
+  },
+  "boylove.jar": {
+    "url": "https://github.com/keiyoushi/extensions/releases/download/24bc6c2/tachiyomi-zh.boylove-v1.6.0.jar",
+    "sha256": "f7ec8cfbc3d8a9b816dd376b1793ef64b10bbf33821308dbf288890a8b72fa38"
+  },
+  "manwa.jar": {
+    "url": "https://github.com/keiyoushi/extensions/releases/download/24bc6c2/tachiyomi-zh.manwa-v1.6.0.jar",
+    "sha256": "e913294f5a3f0d666389589d42ffb46ac56419a60006697aea51c6d08ac3dc78"
+  },
+  "picacomic.jar": {
+    "url": "https://github.com/keiyoushi/extensions/releases/download/5a0261c/tachiyomi-zh.picacomic-v1.6.11.jar",
+    "sha256": "ba7d10e96511f627dcfc605e1347ad7a5259ed7e66170e17a81095e71db3acd8"
+  },
+  "copymanga.apk": {
+    "url": "https://raw.githubusercontent.com/stevenyomi/copymanga/repo/apk/tachiyomi-zh.copymanga-v1.4.53.apk",
+    "sha256": "ab331e2c9f7a0197858cc86c43356508ef5203a4122d30c6ec7b3c44c7193675"
+  },
+  "hotmangas.apk": {
+    "url": "https://raw.githubusercontent.com/anenasa/extensions/master/apk/tachiyomi-zh.hotmangas-v1.4.3.apk",
+    "sha256": "ca7eb58c01fe2725f5139e6ff2771a7948c953ffecab97b88975d7f6bbb870c8"
+  },
+  "aircompressor.jar": {
+    "url": "https://repo.maven.apache.org/maven2/io/airlift/aircompressor/0.27/aircompressor-0.27.jar",
+    "sha256": "fdbef3137a28f63bb0cb93487803080ede746a4ec3d421e36c6f0c305c35e5e4"
+  },
+  "aircompressor-license.txt": {
+    "url": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  }
+}

@@ -11,3 +11,10 @@
 .kotlin/
 kls_database.db
 weblate.conf
+/ios/build/
+/ios/.derivedData/
+/ios/.simDerived/
+/ios/.simulatorData/
+/ios/.build/
+/ios/*.log
+/ios/Yokai.xcodeproj/xcuserdata/

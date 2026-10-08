@@ -1,0 +1,65 @@
+[
+  {
+    "package": "eu.kanade.tachiyomi.extension.zh.vomic",
+    "className": "keiyoushi.source.Generated",
+    "version": "1.4.6",
+    "versionCode": "104006",
+    "file": "vomic.jar",
+    "repository": "https://github.com/keiyoushi/extensions/raw/repo/index.pb"
+  },
+  {
+    "package": "eu.kanade.tachiyomi.extension.zh.bakamh",
+    "className": "keiyoushi.source.Generated",
+    "version": "1.6.65",
+    "versionCode": "106065",
+    "file": "bakamh.jar",
+    "repository": "https://github.com/keiyoushi/extensions/raw/repo/index.pb"
+  },
+  {
+    "package": "eu.kanade.tachiyomi.extension.zh.boylove",
+    "className": "keiyoushi.source.Generated",
+    "version": "1.6.0",
+    "versionCode": "106000",
+    "file": "boylove.jar",
+    "repository": "https://github.com/keiyoushi/extensions/raw/repo/index.pb"
+  },
+  {
+    "package": "eu.kanade.tachiyomi.extension.zh.manwa",
+    "className": "keiyoushi.source.Generated",
+    "version": "1.6.0",
+    "versionCode": "106000",
+    "file": "manwa.jar",
+    "repository": "https://github.com/keiyoushi/extensions/raw/repo/index.pb"
+  },
+  {
+    "package": "eu.kanade.tachiyomi.extension.zh.picacomic",
+    "className": "keiyoushi.source.Generated",
+    "version": "1.6.11",
+    "versionCode": "106011",
+    "file": "picacomic.jar",
+    "repository": "https://github.com/keiyoushi/extensions/raw/repo/index.pb"
+  },
+  {
+    "package": "eu.kanade.tachiyomi.extension.zh.huakacomic",
+    "className": "keiyoushi.source.Generated",
+    "version": "1.6.2",
+    "versionCode": "2",
+    "file": "huakacomic.jar"
+  },
+  {
+    "package": "eu.kanade.tachiyomi.extension.zh.copymanga",
+    "className": "eu.kanade.tachiyomi.extension.zh.copymanga.CopyManga",
+    "version": "1.4.53",
+    "versionCode": "53",
+    "file": "copymanga.jar",
+    "repository": "https://raw.githubusercontent.com/stevenyomi/copymanga/repo/index.min.json"
+  },
+  {
+    "package": "eu.kanade.tachiyomi.extension.zh.hotmangas",
+    "className": "eu.kanade.tachiyomi.extension.zh.hotmangas.HotMangas",
+    "version": "1.4.3",
+    "versionCode": "3",
+    "file": "hotmangas.jar",
+    "repository": "https://raw.githubusercontent.com/anenasa/extensions/master/index.min.json"
+  }
+]

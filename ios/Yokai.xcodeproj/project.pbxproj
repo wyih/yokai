@@ -1,0 +1,40 @@
+// !$*UTF8*$!
+{
+    archiveVersion = 1;
+    classes = {};
+    objectVersion = 77;
+    objects = {
+        A00000000000000000000001 = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 2700; TargetAttributes = {A00000000000000000000002 = {CreatedOnToolsVersion = 27.0; }; }; }; buildConfigurationList = A00000000000000000000010; compatibilityVersion = "Xcode 16.0"; developmentRegion = zh_CN; hasScannedForEncodings = 0; knownRegions = (zh_CN, en, Base); mainGroup = A00000000000000000000003; minimizedProjectReferenceProxies = 1; packageReferences = (A00000000000000000000020); preferredProjectObjectVersion = 77; productRefGroup = A00000000000000000000005; projectDirPath = ""; projectRoot = ""; targets = (A00000000000000000000002); };
+        A00000000000000000000002 = {isa = PBXNativeTarget; buildConfigurationList = A00000000000000000000011; buildPhases = (A00000000000000000000007, A00000000000000000000008, A00000000000000000000009); buildRules = (); dependencies = (); fileSystemSynchronizedGroups = (A00000000000000000000004); name = Yokai; packageProductDependencies = (A00000000000000000000021); productName = Yokai; productReference = A00000000000000000000006; productType = "com.apple.product-type.application"; };
+        A00000000000000000000003 = {isa = PBXGroup; children = (A00000000000000000000004, A00000000000000000000005, A00000000000000000000040, A00000000000000000000042, A00000000000000000000044, A00000000000000000000046, A00000000000000000000048, A00000000000000000000050); sourceTree = "<group>"; };
+        A00000000000000000000004 = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (A00000000000000000000023); path = Yokai; sourceTree = "<group>"; };
+        A00000000000000000000005 = {isa = PBXGroup; children = (A00000000000000000000006); name = Products; sourceTree = "<group>"; };
+        A00000000000000000000006 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Yokai.app; sourceTree = BUILT_PRODUCTS_DIR; };
+        A00000000000000000000007 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+        A00000000000000000000008 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000022, A00000000000000000000041); runOnlyForDeploymentPostprocessing = 0; };
+        A00000000000000000000009 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000043, A00000000000000000000045, A00000000000000000000047, A00000000000000000000049, A00000000000000000000051); runOnlyForDeploymentPostprocessing = 0; };
+        A00000000000000000000010 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000012, A00000000000000000000013); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+        A00000000000000000000011 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000014, A00000000000000000000015); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+        A00000000000000000000012 = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; IPHONEOS_DEPLOYMENT_TARGET = 17.5; DEBUG_INFORMATION_FORMAT = dwarf; SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; name = Debug; };
+        A00000000000000000000013 = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; IPHONEOS_DEPLOYMENT_TARGET = 17.5; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; SWIFT_OPTIMIZATION_LEVEL = "-O"; }; name = Release; };
+        A00000000000000000000014 = {isa = XCBuildConfiguration; buildSettings = {OTHER_LDFLAGS = ("-lc++", "-lz", "-Wl,-all_load"); ENABLE_DEBUG_DYLIB = NO; DEAD_CODE_STRIPPING = NO; SWIFT_OBJC_BRIDGING_HEADER = "Yokai/Yokai-Bridging-Header.h"; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; MARKETING_VERSION = 0.2.8; CURRENT_PROJECT_VERSION = 13; CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = 9FU69Y27YS; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = Yokai/Info.plist; PRODUCT_BUNDLE_IDENTIFIER = com.wyih.yokai; PRODUCT_NAME = "$(TARGET_NAME)"; TARGETED_DEVICE_FAMILY = "1,2"; ENABLE_USER_SCRIPT_SANDBOXING = YES; SWIFT_EMIT_LOC_STRINGS = YES; }; name = Debug; };
+        A00000000000000000000015 = {isa = XCBuildConfiguration; buildSettings = {OTHER_LDFLAGS = ("-lc++", "-lz", "-Wl,-all_load"); ENABLE_DEBUG_DYLIB = NO; DEAD_CODE_STRIPPING = NO; SWIFT_OBJC_BRIDGING_HEADER = "Yokai/Yokai-Bridging-Header.h"; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; MARKETING_VERSION = 0.2.8; CURRENT_PROJECT_VERSION = 13; CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = 9FU69Y27YS; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = Yokai/Info.plist; PRODUCT_BUNDLE_IDENTIFIER = com.wyih.yokai; PRODUCT_NAME = "$(TARGET_NAME)"; TARGETED_DEVICE_FAMILY = "1,2"; ENABLE_USER_SCRIPT_SANDBOXING = YES; SWIFT_EMIT_LOC_STRINGS = YES; }; name = Release; };
+        A00000000000000000000020 = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/weichsel/ZIPFoundation.git"; requirement = {kind = upToNextMinorVersion; minimumVersion = 0.9.20; }; };
+        A00000000000000000000021 = {isa = XCSwiftPackageProductDependency; package = A00000000000000000000020; productName = ZIPFoundation; };
+        A00000000000000000000022 = {isa = PBXBuildFile; productRef = A00000000000000000000021; };
+        A00000000000000000000023 = {isa = PBXFileSystemSynchronizedBuildFileExceptionSet; membershipExceptions = (Info.plist); target = A00000000000000000000002; };
+        A00000000000000000000040 = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = build/runtime/OpenJDK.xcframework; sourceTree = "<group>"; };
+        A00000000000000000000041 = {isa = PBXBuildFile; fileRef = A00000000000000000000040; };
+        A00000000000000000000042 = {isa = PBXFileReference; lastKnownFileType = folder; name = lib; path = build/runtime/lib; sourceTree = "<group>"; };
+        A00000000000000000000043 = {isa = PBXBuildFile; fileRef = A00000000000000000000042; };
+        A00000000000000000000044 = {isa = PBXFileReference; lastKnownFileType = archive.jar; path = build/runtime/Engine.jar; sourceTree = "<group>"; };
+        A00000000000000000000045 = {isa = PBXBuildFile; fileRef = A00000000000000000000044; };
+        A00000000000000000000046 = {isa = PBXFileReference; lastKnownFileType = archive.jar; path = build/runtime/compat.jar; sourceTree = "<group>"; };
+        A00000000000000000000047 = {isa = PBXBuildFile; fileRef = A00000000000000000000046; };
+        A00000000000000000000048 = {isa = PBXFileReference; lastKnownFileType = folder; path = build/runtime/Extensions; sourceTree = "<group>"; };
+        A00000000000000000000050 = {isa = PBXFileReference; lastKnownFileType = folder; name = Notices; path = build/runtime/Notices; sourceTree = "<group>"; };
+		A00000000000000000000051 = {isa = PBXBuildFile; fileRef = A00000000000000000000050; };
+		A00000000000000000000049 = {isa = PBXBuildFile; fileRef = A00000000000000000000048; };
+    };
+    rootObject = A00000000000000000000001;
+}
