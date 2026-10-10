@@ -10,7 +10,11 @@ final class YokaiSession: ObservableObject {
     let activity = LibraryActivity()
     @Published var incomingBackup: URL?
     init() {
+        #if DEBUG && targetEnvironment(macCatalyst)
+        library = ComicLibrary(root: DesktopCheck.directory?.appendingPathComponent("Library"))
+        #else
         library = ComicLibrary()
+        #endif
         sync = WebDAVSync(library: library)
     }
     func start() async {
@@ -19,8 +23,14 @@ final class YokaiSession: ObservableObject {
         // Host UI tests exercise routing here; plugins are verified on iPhone.
         if ProcessInfo.processInfo.arguments.contains("--reader-host-ui-test") { return }
         #endif
+        #if !targetEnvironment(macCatalyst)
         UIDevice.current.isBatteryMonitoringEnabled = true
+        #endif
         await extensions.start(); downloads.connect(library: library, extensions: extensions)
+        #if DEBUG && targetEnvironment(macCatalyst)
+        await DesktopCheck.run(library: library, extensions: extensions)
+        if DesktopCheck.directory != nil { return }
+        #endif
         #if DEBUG && targetEnvironment(simulator)
         LocalUIFixture.checkReaderBrightness()
         if LocalUIFixture.previewScreen != nil { try? LocalUIFixture.preparePreviewImages(library: library) }
@@ -41,8 +51,10 @@ final class YokaiSession: ObservableObject {
     func phase(_ phase: ScenePhase) {
         if phase != .active {
             Task {
+                #if !targetEnvironment(macCatalyst)
                 let background = UIApplication.shared.beginBackgroundTask(withName: "保存阅读进度")
                 defer { if background != .invalid { UIApplication.shared.endBackgroundTask(background) } }
+                #endif
                 do { try await library.flushPendingSaves() }
                 catch { library.errorMessage = "书架保存失败：" + error.localizedDescription }
             }
@@ -59,9 +71,14 @@ struct YokaiApp: App {
     @StateObject private var session = YokaiSession()
     var body: some Scene {
         WindowGroup { YokaiRootView(session: session) }
+        #if targetEnvironment(macCatalyst)
+        .commands { DesktopReaderCommands() }
+        #endif
+        #if !targetEnvironment(macCatalyst)
         .backgroundTask(.appRefresh(AppMaintenance.identifier)) {
             await session.maintain(); await AppMaintenance.schedule()
         }
+        #endif
     }
 }
 #endif
@@ -96,6 +113,15 @@ struct YokaiRootView: View {
                 if LocalUIFixture.previewScreen == "sources" { selectedTab = 2 }
                 #endif
                 await session.start()
+                #if targetEnvironment(macCatalyst)
+                for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+                    scene.sizeRestrictions?.minimumSize = CGSize(width: 760, height: 560)
+                }
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: .seconds(300)) } catch { break }
+                    await session.maintain()
+                }
+                #endif
             }
             #if !READING_HUB
             .onOpenURL { url in Task { await session.open(url) } }
@@ -118,12 +144,14 @@ final class YokaiApplicationDelegate: NSObject, UIApplicationDelegate {
 
 enum ReaderOrientation {
     static func apply(_ orientation: String) {
+        #if !targetEnvironment(macCatalyst)
         let mask: UIInterfaceOrientationMask = orientation == "portrait" ? .portrait : orientation == "landscape" ? .landscape : .all
         YokaiApplicationDelegate.readerOrientation = mask
         for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) where scene.activationState == .foregroundActive {
             scene.windows.first(where: \.isKeyWindow)?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
             scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask))
         }
+        #endif
     }
 }
 

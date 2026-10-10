@@ -133,7 +133,7 @@ final class ExtensionStore: ObservableObject {
             } else {
                 installed = try JSONDecoder().decode([InstalledExtension].self, from: Data(contentsOf: Bundle.main.url(forResource: "BundledExtensions", withExtension: "json")!))
                 for item in installed {
-                    let source = Bundle.main.bundleURL.appendingPathComponent("Extensions/\(item.file)")
+                    let source = Bundle.main.resourceURL!.appendingPathComponent("Extensions/\(item.file)")
                     let target = root.appendingPathComponent(item.file)
                     if !FileManager.default.fileExists(atPath: target.path) { try FileManager.default.copyItem(at: source, to: target) }
                 }

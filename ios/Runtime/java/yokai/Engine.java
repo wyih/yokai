@@ -144,7 +144,7 @@ public final class Engine {
                     Object factory=Class.forName(item.getString("className"),true,loader).getDeclaredConstructor().newInstance();
                     List<Source> created=factory instanceof SourceFactory?((SourceFactory)factory).createSources():Collections.singletonList((Source)factory);
                     for(Source source:created){String id=Long.toString(source.getId());sources.put(id,source);result.put(new JSONObject().put("id",id).put("name",source.getName()).put("lang",source.getLang()).put("latest",source.getSupportsLatest()).put("baseURL",source instanceof HttpSource?((HttpSource)source).getBaseUrl():"").put("package",item.getString("package")));}
-                }catch(Throwable e){result.put(new JSONObject().put("package",item.getString("package")).put("error",e.toString()));}
+                }catch(Throwable e){while((e instanceof InvocationTargetException||e instanceof ExceptionInInitializerError||e instanceof UndeclaredThrowableException)&&e.getCause()!=null)e=e.getCause();result.put(new JSONObject().put("package",item.getString("package")).put("error",e.toString()));}
             }
             return result;
         }

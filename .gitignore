@@ -21,3 +21,6 @@ weblate.conf
 /ios/ReadingHub/build/
 /ios/ReadingHub/.build/
 /ios/ReadingHub/ReadingHub.xcodeproj/
+/ios/.macDerivedData/
+/ios/.macSignedDerivedData/
+/outputs/desktop/

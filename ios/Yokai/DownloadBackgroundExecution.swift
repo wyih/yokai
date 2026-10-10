@@ -5,6 +5,15 @@ import UIKit
 /// library updates and reader prefetching do not create continued-processing UI.
 @MainActor
 final class DownloadBackgroundExecution {
+    #if targetEnvironment(macCatalyst)
+    var changed: ((String?) -> Void)?
+    var granted: (() -> Void)?
+    var expired: ((Set<String>) -> Void)?
+    var active: Bool { false }
+    func request(_ ids: Set<String>, jobs: [ChapterDownload]) {}
+    func report(_ jobs: [ChapterDownload]) {}
+    func contains(_ id: String) -> Bool { false }
+    #else
     #if READING_HUB
     static let identifier = (Bundle.main.bundleIdentifier ?? "com.wyih.qiyereader") + ".yokai.download"
     #else
@@ -84,4 +93,5 @@ final class DownloadBackgroundExecution {
         if let value { value.expirationHandler = nil; value.setTaskCompleted(success: success) }
         else if let identifier { BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier) }
     }
+    #endif
 }

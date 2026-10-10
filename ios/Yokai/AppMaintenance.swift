@@ -23,7 +23,11 @@ enum AppMaintenance {
         if Task.isCancelled { return }
         let defaults = YokaiStorage.defaults
         let hours = defaults.object(forKey: "library.updateHours") as? Int ?? 24
+        #if targetEnvironment(macCatalyst)
+        let charging = true
+        #else
         let charging = UIDevice.current.batteryState == .charging || UIDevice.current.batteryState == .full
+        #endif
         if hours > 0, Date().timeIntervalSince(activity.checkedAt ?? .distantPast) >= Double(hours) * 3600,
            (!defaults.bool(forKey: "library.updateWifi") || downloads.wifi),
            (!defaults.bool(forKey: "library.updateCharging") || charging) {
@@ -35,6 +39,7 @@ enum AppMaintenance {
         await AutomaticBackups.createIfDue(library: library, extensions: extensions)
     }
     static func schedule() {
+        #if !targetEnvironment(macCatalyst)
         let defaults = YokaiStorage.defaults
         let periods = [defaults.object(forKey: "library.updateHours") as? Int ?? 24, defaults.integer(forKey: "backup.hours"), defaults.bool(forKey: "extensions.autoCheck") ? 24 : 0].filter { $0 > 0 }
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
@@ -43,6 +48,7 @@ enum AppMaintenance {
         request.earliestBeginDate = Date(timeIntervalSinceNow: Double(hours) * 3600)
         do { try BGTaskScheduler.shared.submit(request); defaults.removeObject(forKey: "maintenance.error") }
         catch { defaults.set(error.localizedDescription, forKey: "maintenance.error") }
+        #endif
     }
 }
 
@@ -111,8 +117,13 @@ struct LibraryUpdateSettingsView: View {
         Form {
             Section("自动更新") {
                 Picker("检查间隔", selection: $hours) { Text("手动").tag(0); ForEach([12, 24, 48, 72, 168], id: \.self) { Text("\($0) 小时").tag($0) } }
-                Toggle("仅在 Wi-Fi 下更新", isOn: $wifi); Toggle("仅在充电时更新", isOn: $charging)
+                Toggle("仅在 Wi-Fi 下更新", isOn: $wifi)
+                #if !targetEnvironment(macCatalyst)
+                Toggle("仅在充电时更新", isOn: $charging)
                 Text("后台检查时间由 iOS 安排。打开 App 时也会检查到期的任务。").font(.footnote).foregroundStyle(.secondary)
+                #else
+                Text("应用运行期间检查到期的更新任务。").font(.footnote).foregroundStyle(.secondary)
+                #endif
                 if !error.isEmpty { Text("后台调度：" + error).font(.footnote).foregroundStyle(.secondary) }
             }
             Section("更新范围") {

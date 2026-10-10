@@ -40,7 +40,9 @@ struct MangaReaderSettingsView: View {
         Form {
             Section("本书设置") {
                 Picker("阅读方式", selection: string(\.mode)) { Text("跟随默认").tag("default"); ReaderModeChoices() }
+                #if !targetEnvironment(macCatalyst)
                 Picker("屏幕方向", selection: string(\.orientation)) { Text("跟随默认").tag("default"); Text("自由旋转").tag("free"); Text("竖屏").tag("portrait"); Text("横屏").tag("landscape") }
+                #endif
                 Picker("图片缩放", selection: string(\.scale)) { Text("跟随默认").tag("default"); ReaderScaleChoices() }
                 Picker("页面布局", selection: string(\.layout)) { Text("跟随默认").tag("default"); ReaderLayoutChoices() }
                 option("裁剪边框", flag(\.trimBorders))
@@ -90,7 +92,9 @@ struct ReaderDefaultsView: View {
         Form {
             Section("阅读") {
                 Picker("默认阅读方式", selection: $mode) { ReaderModeChoices() }
+                #if !targetEnvironment(macCatalyst)
                 Picker("屏幕方向", selection: $orientation) { Text("自由旋转").tag("free"); Text("竖屏").tag("portrait"); Text("横屏").tag("landscape") }
+                #endif
                 Picker("图片缩放", selection: $scale) { ReaderScaleChoices() }
                 Picker("放大起始位置", selection: $zoomStart) { Text("跟随阅读方向").tag("auto"); Text("左侧").tag("left"); Text("右侧").tag("right"); Text("中间").tag("center") }
                 Toggle("翻页动画", isOn: $animate)
@@ -103,13 +107,19 @@ struct ReaderDefaultsView: View {
                 Toggle("长按图片显示操作", isOn: $longTap)
             }
             Section("显示") {
-                Toggle("阅读时保持屏幕常亮", isOn: $awake); Toggle("全屏", isOn: $fullscreen); Toggle("显示页码", isOn: $numbers)
+                Toggle("阅读时保持屏幕常亮", isOn: $awake)
+                #if !targetEnvironment(macCatalyst)
+                Toggle("全屏", isOn: $fullscreen)
+                #endif
+                Toggle("显示页码", isOn: $numbers)
                 Picker("背景", selection: $background) { Text("黑色").tag("black"); Text("灰色").tag("gray"); Text("纸色").tag("paper"); Text("白色").tag("white") }
+                #if !targetEnvironment(macCatalyst)
                 Toggle("自定义亮度", isOn: $customBrightness)
                 if customBrightness {
                     LabeledContent("亮度", value: brightness == 0 ? "系统亮度" : "\(Int(brightness * 100))%")
                     Slider(value: $brightness, in: -0.75...1, step: 0.01).accessibilityLabel("屏幕亮度")
                 }
+                #endif
                 Toggle("灰度", isOn: $grayscale); Toggle("反转颜色", isOn: $inverted)
                 NavigationLink("颜色滤镜") { ReaderColorSettingsView() }
             }

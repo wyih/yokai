@@ -132,6 +132,7 @@ final class DownloadStore: ObservableObject {
         save(); resumeWorker()
     }
     func beginBackground() {
+        #if !targetEnvironment(macCatalyst)
         guard !workers.isEmpty, !continued.active, backgroundTask == .invalid else { return }
         backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "漫画下载") { [weak self] in
             Task { @MainActor in
@@ -142,6 +143,7 @@ final class DownloadStore: ObservableObject {
                 self.endBackground()
             }
         }
+        #endif
     }
     func interruptForBackground(_ reason: ChapterDownload.Interruption, ids: Set<String>? = nil) {
         backgroundExpired = reason == .backgroundTime || UIApplication.shared.applicationState != .active
@@ -161,10 +163,12 @@ final class DownloadStore: ObservableObject {
         guard let i = jobs.firstIndex(where: { $0.id == id }) else { return }; change(&jobs[i]); save()
     }
     private func allowed(_ job: ChapterDownload) -> Bool {
+        #if !targetEnvironment(macCatalyst)
         if UIApplication.shared.applicationState == .background {
             if continued.active && !continued.contains(job.id) { return false }
             if !continued.active && backgroundTask == .invalid { return false }
         }
+        #endif
         return job.forReading == true || wifi || !YokaiStorage.defaults.bool(forKey: "downloads.wifiOnly")
     }
     private func resumeWorker() {

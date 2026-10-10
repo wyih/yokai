@@ -1,5 +1,10 @@
 #import "JavaBridge.h"
 #import <Security/Security.h>
+#include <TargetConditionals.h>
+#if TARGET_OS_MACCATALYST
+#include <dlfcn.h>
+#import "DesktopKeychain.h"
+#endif
 #include "jni.h"
 
 static JavaVM *runtime;
@@ -31,19 +36,32 @@ static NSDictionary *preferenceQuery(NSString *name) {
              (__bridge id)kSecAttrAccount: name};
 }
 static jstring readPreferences(JNIEnv *env, jclass cls, jstring name) {
+    #if TARGET_OS_MACCATALYST
+    NSError *error;
+    NSString *value = [DesktopKeychain readForService:@"com.wyih.yokai.extension-preferences" account:nativeString(env, name) error:&error];
+    if (!value) { throwIO(env, error.localizedDescription ?: @"无法读取漫画源设置。"); return NULL; }
+    return javaString(env, value.length ? value : @"{}");
+    #else
     NSMutableDictionary *query = [preferenceQuery(nativeString(env, name)) mutableCopy];
     query[(__bridge id)kSecReturnData] = @YES;
     query[(__bridge id)kSecMatchLimit] = (__bridge id)kSecMatchLimitOne;
     CFTypeRef result = NULL;
     OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &result);
     if (status == errSecItemNotFound) return javaString(env, @"{}");
-    if (status != errSecSuccess) { throwIO(env, @"无法读取漫画源设置。"); return NULL; }
+    if (status != errSecSuccess) { throwIO(env, [NSString stringWithFormat:@"无法读取漫画源设置（Keychain %d）。", (int)status]); return NULL; }
     NSData *data = CFBridgingRelease(result);
     NSString *value = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     if (!value) { throwIO(env, @"漫画源设置数据损坏。"); return NULL; }
     return javaString(env, value);
+    #endif
 }
 static void writePreferences(JNIEnv *env, jclass cls, jstring name, jstring json) {
+    #if TARGET_OS_MACCATALYST
+    NSError *error;
+    if (![DesktopKeychain write:nativeString(env, json) service:@"com.wyih.yokai.extension-preferences" account:nativeString(env, name) error:&error]) {
+        throwIO(env, error.localizedDescription ?: @"无法保存漫画源设置。");
+    }
+    #else
     NSDictionary *query = preferenceQuery(nativeString(env, name));
     NSData *value = [nativeString(env, json) dataUsingEncoding:NSUTF8StringEncoding];
     OSStatus status = SecItemUpdate((__bridge CFDictionaryRef)query,
@@ -54,7 +72,8 @@ static void writePreferences(JNIEnv *env, jclass cls, jstring name, jstring json
         item[(__bridge id)kSecAttrAccessible] = (__bridge id)kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly;
         status = SecItemAdd((__bridge CFDictionaryRef)item, NULL);
     }
-    if (status != errSecSuccess) throwIO(env, @"无法保存漫画源设置。");
+    if (status != errSecSuccess) throwIO(env, [NSString stringWithFormat:@"无法保存漫画源设置（Keychain %d）。", (int)status]);
+    #endif
 }
 static void openWebView(JNIEnv *env, jclass cls, jstring address, jstring source) {
     NSString *url = nativeString(env, address);
@@ -96,9 +115,22 @@ static NSError *javaError(JNIEnv *env) {
             @synchronized([JavaBridge class]) {
                 if (!runtime) {
                     NSString *bundle = NSBundle.mainBundle.resourcePath;
+#if TARGET_OS_MACCATALYST
+                    NSString *javaHome = [bundle stringByAppendingPathComponent:@"JavaRuntime"];
+                    static void *jvmLibrary;
+                    jvmLibrary = dlopen([[javaHome stringByAppendingPathComponent:@"lib/server/libjvm.dylib"] fileSystemRepresentation], RTLD_NOW | RTLD_LOCAL);
+                    jint (*createVM)(JavaVM **, void **, void *) = jvmLibrary ? dlsym(jvmLibrary, "JNI_CreateJavaVM") : NULL;
+                    if (!createVM) {
+                        const char *detail = dlerror();
+                        failure = [NSError errorWithDomain:@"YokaiJava" code:1 userInfo:@{NSLocalizedDescriptionKey:
+                            [@"无法加载桌面漫画运行时：" stringByAppendingString:detail ? @(detail) : @"JNI_CreateJavaVM 不存在"]}];
+                    }
+#else
+                    NSString *javaHome = [bundle stringByAppendingPathComponent:@"lib"];
+#endif
                     NSArray<NSString *> *settings = @[
                         [NSString stringWithFormat:@"-Djava.class.path=%@/Engine.jar:%@/compat.jar", bundle, bundle],
-                        [NSString stringWithFormat:@"-Djava.home=%@/lib", bundle],
+                        [@"-Djava.home=" stringByAppendingString:javaHome],
                         [@"-Duser.home=" stringByAppendingString:NSHomeDirectory()],
                         @"-Dfile.encoding=UTF-8", @"-Xint", @"-Xmx256m"
                     ];
@@ -106,11 +138,15 @@ static NSError *javaError(JNIEnv *env) {
                     for (int i = 0; i < 6; i++) options[i].optionString = strdup(settings[i].UTF8String);
                     JavaVMInitArgs args = {0};
                     args.version = JNI_VERSION_1_8; args.nOptions = 6; args.options = options;
+#if TARGET_OS_MACCATALYST
+                    int result = createVM ? createVM(&runtime, (void **)&env, &args) : JNI_ERR;
+#else
                     int result = JNI_CreateJavaVM(&runtime, (void **)&env, &args);
+#endif
                     for (int i = 0; i < 6; i++) free(options[i].optionString);
                     if (result != JNI_OK) {
                         runtime = NULL;
-                        failure = [NSError errorWithDomain:@"YokaiJava" code:result userInfo:@{NSLocalizedDescriptionKey: @"无法启动漫画插件运行时。"}];
+                        failure = failure ?: [NSError errorWithDomain:@"YokaiJava" code:result userInfo:@{NSLocalizedDescriptionKey: @"无法启动漫画插件运行时。"}];
                     } else {
                         jclass services = (*env)->FindClass(env, "yokai/NativeServices");
                         JNINativeMethod methods[] = {

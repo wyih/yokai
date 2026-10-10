@@ -29,6 +29,10 @@ A free and open source manga reader
 
 *Requires Android 8.0 or higher.*
 
+### Mac desktop
+
+This fork includes a native Mac Catalyst desktop target for Apple Silicon on macOS 14.5 or later. Run `./desktop/build-mac.sh` to produce a self-contained `Yokai.app` and ZIP in `outputs/desktop/`. It shares the iOS reader, original extension engine, library, downloads, backups, and WebDAV sync. See [desktop build and keyboard controls](desktop/README.md).
+
 ## About Fork
 
 This fork was created for personal usage, the name Yōkai is chosen in theme of my "paranormal" fork collection, all of them are made for personal purposes, to explore the language used to made them, explore new tech, or simply want to add my own twists that may not accepted by upstream as a PR.

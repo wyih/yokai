@@ -7,6 +7,9 @@ enum DAVPassword {
         kSecAttrService as String: "com.wyih.yokai.webdav", kSecAttrAccount as String: "password"]
 
     static func read() -> String {
+        #if targetEnvironment(macCatalyst)
+        return (try? DesktopKeychain.read(forService: "com.wyih.yokai.webdav", account: "password")) ?? ""
+        #else
         var request = query
         request[kSecReturnData as String] = true
         request[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -14,9 +17,13 @@ enum DAVPassword {
         guard SecItemCopyMatching(request as CFDictionary, &result) == errSecSuccess,
               let data = result as? Data else { return "" }
         return String(data: data, encoding: .utf8) ?? ""
+        #endif
     }
 
     static func write(_ password: String) throws {
+        #if targetEnvironment(macCatalyst)
+        _ = try DesktopKeychain.write(password, service: "com.wyih.yokai.webdav", account: "password")
+        #else
         let value = [kSecValueData as String: Data(password.utf8)]
         var status = SecItemUpdate(query as CFDictionary, value as CFDictionary)
         if status == errSecItemNotFound {
@@ -26,6 +33,7 @@ enum DAVPassword {
             status = SecItemAdd(item as CFDictionary, nil)
         }
         guard status == errSecSuccess else { throw SyncError.keychain(status) }
+        #endif
     }
 }
 

@@ -46,6 +46,9 @@ struct ReaderView: View {
     @State private var brightnessControl = ReaderBrightness()
     @State private var readerVisible = false
     @State private var oldIdleTimer = false
+    #if targetEnvironment(macCatalyst)
+    @State private var desktopActivity = DesktopReaderActivity()
+    #endif
     @State private var requestedChapter: String?
     @State private var chapterError: String?
     @State private var configuringReader = false
@@ -263,17 +266,38 @@ struct ReaderView: View {
         .sheet(isPresented: $configuringReader) { NavigationStack { MangaReaderSettingsView(bookID: book.id) } }
         .alert("章节加载失败", isPresented: Binding(get: { chapterError != nil }, set: { if !$0 { chapterError = nil } })) { Button("好", role: .cancel) {} } message: { Text(chapterError ?? "") }
         .alert("图片操作", isPresented: Binding(get: { imageMessage != nil }, set: { if !$0 { imageMessage = nil } })) { Button("好", role: .cancel) {} } message: { Text(imageMessage ?? "") }
-        .onAppear { readerVisible = true; oldIdleTimer = UIApplication.shared.isIdleTimerDisabled; UIApplication.shared.isIdleTimerDisabled = keepAwake; applyBrightness(); ReaderOrientation.apply(orientation) }
+        #if targetEnvironment(macCatalyst)
+        .focusedSceneValue(\.desktopReaderAction, (configuringReader || configuringTapZones || shareImage != nil) ? nil : desktopAction)
+        #endif
+        .onAppear {
+            readerVisible = true
+            #if targetEnvironment(macCatalyst)
+            desktopActivity.apply(keepAwake: keepAwake)
+            #else
+            oldIdleTimer = UIApplication.shared.isIdleTimerDisabled; UIApplication.shared.isIdleTimerDisabled = keepAwake
+            #endif
+            applyBrightness(); ReaderOrientation.apply(orientation)
+        }
         .onDisappear {
             readerVisible = false
             Task { do { try await library.flushPendingSaves() } catch { library.errorMessage = error.localizedDescription } }
             downloads.leftChapter(bookID: book.id, chapterURL: book.origin?.chapterURL, order: orderedChapters.map(\.url))
+            #if targetEnvironment(macCatalyst)
+            desktopActivity.apply(keepAwake: false)
+            #else
             UIApplication.shared.isIdleTimerDisabled = oldIdleTimer
+            #endif
             brightnessControl.restore()
             ReaderOrientation.apply("free")
         }
         .onChange(of: orientation) { _, value in ReaderOrientation.apply(value) }
-        .onChange(of: keepAwake) { _, value in UIApplication.shared.isIdleTimerDisabled = value }
+        .onChange(of: keepAwake) { _, value in
+            #if targetEnvironment(macCatalyst)
+            desktopActivity.apply(keepAwake: value)
+            #else
+            UIApplication.shared.isIdleTimerDisabled = value
+            #endif
+        }
         .onChange(of: brightness) { _, _ in applyBrightness() }
         .onChange(of: customBrightness) { _, _ in applyBrightness() }
         .onChange(of: scenePhase) { _, phase in
@@ -311,8 +335,10 @@ struct ReaderView: View {
     }
 
     private func applyBrightness() {
+        #if !targetEnvironment(macCatalyst)
         guard readerVisible, scenePhase == .active else { return }
         brightnessControl.apply(enabled: customBrightness, value: brightness)
+        #endif
     }
     private func imageAction(_ action: String, image: UIImage) {
         switch action {
@@ -322,6 +348,19 @@ struct ReaderView: View {
         default: break
         }
     }
+    #if targetEnvironment(macCatalyst)
+    private func desktopAction(_ action: String) {
+        guard !configuringReader, !configuringTapZones, shareImage == nil else { return }
+        switch action {
+        case "close": dismiss()
+        case "previousChapter": openAdjacent(-1)
+        case "nextChapter": openAdjacent(1)
+        case "left": navigate(mode == "rtl" ? "next" : "previous")
+        case "right": navigate(mode == "rtl" ? "previous" : "next")
+        default: navigate(action)
+        }
+    }
+    #endif
 
     @State private var configuringTapZones = false
     @AppStorage("tapZones.layout", store: YokaiStorage.defaults) private var tapLayout = "columns"
@@ -387,6 +426,9 @@ struct ReaderView: View {
             FileHandle.standardError.write(Data("Reader tap \(location) \(size) action \(action) page \(page ?? -1) anchor \(scrollTarget ?? -1) request \(scrollRequest)\n".utf8))
         }
         #endif
+        navigate(action)
+    }
+    private func navigate(_ action: String) {
         switch action {
         case "previous": if continuous { scrollRequest -= 1 } else if (displayFrame ?? 0) == 0 { openAdjacent(-1) } else { displayFrame = max(0, (displayFrame ?? 0) - 1) }
         case "next": if continuous { scrollRequest += 1 } else if (displayFrame ?? 0) + 1 >= readingFrames.count { openAdjacent(1) } else { displayFrame = min(readingFrames.count - 1, (displayFrame ?? 0) + 1) }

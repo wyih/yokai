@@ -2,7 +2,12 @@ import Foundation
 
 /// Standalone paths remain unchanged; the host uses its own namespace.
 enum YokaiStorage {
-    #if READING_HUB
+    #if targetEnvironment(macCatalyst)
+    static var preferencesDomain: String { Bundle.main.bundleIdentifier ?? "com.wyih.yokai.desktop" }
+    static let defaults = UserDefaults.standard
+    static let support = directory(.applicationSupportDirectory).appendingPathComponent(preferencesDomain, isDirectory: true)
+    static let documents = support.appendingPathComponent("Library", isDirectory: true)
+    #elseif READING_HUB
     static let preferencesDomain = "com.wyih.readinghub.yokai"
     static let defaults = UserDefaults(suiteName: preferencesDomain)!
     static let documents = directory(.documentDirectory).appendingPathComponent("Yokai", isDirectory: true)
