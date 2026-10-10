@@ -6,6 +6,7 @@ import json
 import os
 import plistlib
 import shutil
+import subprocess
 
 root = Path(__file__).resolve().parent
 ios = root.parent
@@ -23,8 +24,10 @@ info['UIApplicationSceneManifest'] = {'UIApplicationSupportsMultipleScenes': Fal
 info.update({k:v for k,v in yokai.items() if k.startswith('NSPhotoLibraryAdd') or k == 'UTImportedTypeDeclarations'})
 info['CFBundleDisplayName'] = '书房'
 info['CFBundleName'] = 'ReadingHub'
-info['CFBundleShortVersionString'] = '0.1.0'
-info['CFBundleVersion'] = '1'
+info['HubQiyeVersion'] = info['CFBundleShortVersionString']
+info['HubQiyeCommit'] = subprocess.check_output(['git', '-C', str(qiye), 'rev-parse', 'HEAD'], text=True).strip()
+info['CFBundleShortVersionString'] = '0.1.1'
+info['CFBundleVersion'] = '2'
 info['CFBundleDocumentTypes'] += yokai['CFBundleDocumentTypes']
 info['UIBackgroundModes'] = ['audio','fetch','processing']
 info['BGTaskSchedulerPermittedIdentifiers'] = ['$(PRODUCT_BUNDLE_IDENTIFIER).yokai.refresh','$(PRODUCT_BUNDLE_IDENTIFIER).yokai.download.*']
@@ -37,6 +40,7 @@ if migration_group:
     info['HubOwnKeychainGroup'] = '$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)'
     (build/'Migration.entitlements').write_bytes(plistlib.dumps({'keychain-access-groups': ['$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)','$(AppIdentifierPrefix)com.kdt.livecontainer.shared.'+migration_group]}))
 (build/'Info.plist').write_bytes(plistlib.dumps(info, sort_keys=False))
+(build/'Simulator.entitlements').write_bytes(plistlib.dumps({'application-identifier': '$(PRODUCT_BUNDLE_IDENTIFIER)', 'keychain-access-groups': ['$(PRODUCT_BUNDLE_IDENTIFIER)']}))
 manifest = {'yokai': str(ios.parent), 'qiye': str(qiye)}
 (build/'source-roots.json').write_text(json.dumps(manifest, indent=2))
 objects = []
@@ -95,12 +99,13 @@ for mode in ['Debug','Release']:
     common={'CLANG_ENABLE_MODULES':'YES','SDKROOT':'iphoneos','IPHONEOS_DEPLOYMENT_TARGET':'17.5','SWIFT_VERSION':'5.0','ONLY_ACTIVE_ARCH':'YES' if mode=='Debug' else 'NO','SWIFT_ACTIVE_COMPILATION_CONDITIONS':'READING_HUB'+(' DEBUG' if mode=='Debug' else ''),'SWIFT_OPTIMIZATION_LEVEL':'-Onone' if mode=='Debug' else '-O','DEBUG_INFORMATION_FORMAT':'dwarf' if mode=='Debug' else 'dwarf-with-dsym'}
     host={'PRODUCT_NAME':'ReadingHub','PRODUCT_BUNDLE_IDENTIFIER':'com.wyih.qiyereader','INFOPLIST_FILE':'build/Info.plist','GENERATE_INFOPLIST_FILE':'NO','SWIFT_OBJC_BRIDGING_HEADER':'../Yokai/Yokai-Bridging-Header.h','OTHER_LDFLAGS':'$(inherited) -lc++ -lz -Wl,-all_load','ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon','ENABLE_DEBUG_DYLIB':'NO','DEAD_CODE_STRIPPING':'NO','TARGETED_DEVICE_FAMILY':'1,2','CODE_SIGN_STYLE':'Automatic','DEVELOPMENT_TEAM':'9FU69Y27YS','LD_RUNPATH_SEARCH_PATHS':'$(inherited) @executable_path/Frameworks'}
     module={'PRODUCT_NAME':'QiyeModule','PRODUCT_MODULE_NAME':'QiyeModule','DEFINES_MODULE':'YES','SWIFT_INSTALL_OBJC_HEADER':'NO','SKIP_INSTALL':'YES','MACH_O_TYPE':'staticlib','CODE_SIGNING_ALLOWED':'NO','TARGETED_DEVICE_FAMILY':'1,2'}
+    host['CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]'] = 'build/Simulator.entitlements'
     if migration_group:
         host['CODE_SIGN_ENTITLEMENTS'] = 'build/Migration.entitlements'
         host['SWIFT_ACTIVE_COMPILATION_CONDITIONS'] = common['SWIFT_ACTIVE_COMPILATION_CONDITIONS']+' MIGRATE_LIVE_CONTAINER'
     test={'PRODUCT_NAME':'ReadingHubUITests','PRODUCT_BUNDLE_IDENTIFIER':'com.wyih.readinghub.uitests','GENERATE_INFOPLIST_FILE':'YES','TEST_TARGET_NAME':'ReadingHub','TARGETED_DEVICE_FAMILY':'1,2','CODE_SIGN_STYLE':'Automatic'}
     for name,settings in [('project',common),('host',host),('qiye',module),('test',test)]:
-        text=' '.join(f'{k} = {q(v)};' for k,v in settings.items())
+        text=' '.join(f'{q(k)} = {q(v)};' for k,v in settings.items())
         configs[name].append(obj(name+mode,'XCBuildConfiguration',f'name = {mode}; buildSettings = {{{text}}};'))
 def config(name):return obj(name+'-configs','XCConfigurationList',f'buildConfigurations = {array(configs[name])}; defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')
 pc,hc,qc=map(config,['project','host','qiye'])
