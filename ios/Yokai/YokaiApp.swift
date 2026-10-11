@@ -35,6 +35,7 @@ final class YokaiSession: ObservableObject {
         LocalUIFixture.checkReaderBrightness()
         if LocalUIFixture.previewScreen != nil { try? LocalUIFixture.preparePreviewImages(library: library) }
         if LocalUIFixture.enabled { await LocalUIFixture.checkFiles(library: library, extensions: extensions); await LocalUIFixture.checkDownloads(extensions: extensions); await LocalUIFixture.checkTachimanga(extensions: extensions) }
+        if LocalUIFixture.enabled { await LocalUIFixture.checkCovers(extensions: extensions) }
         if LocalPerformanceCheck.enabled { await LocalPerformanceCheck.run() }
         #endif
         await maintain()

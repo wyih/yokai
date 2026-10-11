@@ -1,6 +1,7 @@
 #if DEBUG && targetEnvironment(simulator)
 import Foundation
 import UIKit
+import WebKit
 import ZIPFoundation
 
 // The simulator cannot execute the upstream mobile JVM reliably. This explicit
@@ -13,7 +14,67 @@ enum LocalUIFixture {
     @MainActor private static var imageRequests: [Int: Int] = [:]
     @MainActor private static var pageRequests = 0
     @MainActor private static var failImageOnce = false
+    @MainActor private static var coverRequests = 0
+    @MainActor private static var coverVerified = false
+    @MainActor private static var failCookieSync = false
     @MainActor static func response(_ action: String, _ arguments: [String: Any]) async throws -> Any {
+        if ProcessInfo.processInfo.arguments.contains("-YokaiSourceNavigationCheck") {
+            switch action {
+            case "load":
+                let items = arguments["extensions"] as! [[String: Any]]
+                return (0..<3).map { ["id": "navigation-\($0)", "name": "配置验证图源\($0)", "lang": "zh",
+                                     "package": items[$0 < 2 ? 0 : 1]["package"]!] }
+            case "filters": return [Any]()
+            case "popular", "latest": return ["manga": [["url": "/navigation/book", "title": "图源目录验证"]], "hasNext": false]
+            case "preferences":
+                return [["index": 0, "key": "username", "title": "用户名", "value": "", "valueType": "string"],
+                        ["index": 1, "key": "password", "title": "密码", "value": "", "valueType": "string"]]
+            default: throw SourceError.message("此入口验证不执行其他插件请求。")
+            }
+        }
+        if ProcessInfo.processInfo.arguments.contains("-YokaiCoverCacheCheck") {
+            switch action {
+            case "load": return [["id": "cover-check", "name": "封面验证", "lang": "zh", "package": "fixture.cover"]]
+            case "webViewInfo": return ["url": "https://cover-check.invalid/", "headers": ["User-Agent": "Yokai-Cover-Check"]]
+            case "exportCookies": return [Any]()
+            case "cookies":
+                if failCookieSync { throw SourceError.message("模拟 Cookie 同步失败") }
+                let cookies = arguments["cookies"] as? [[String: Any]] ?? []
+                coverVerified = (arguments["hosts"] as? [String])?.contains("cover-check.invalid") == true
+                    && cookies.contains { ($0["name"] as? String) == "cover-check-clearance" && ($0["value"] as? String) == "verified" }
+                return true
+            case "cover":
+                coverRequests += 1
+                guard coverVerified else { throw SourceError.message("请在 WebView 中完成网站验证，点完成后重试。") }
+                let image = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 40)).image { context in
+                    UIColor.blue.setFill(); context.fill(CGRect(x: 0, y: 0, width: 24, height: 40))
+                }
+                try image.pngData()!.write(to: URL(fileURLWithPath: arguments["path"] as! String))
+                return true
+            default: throw SourceError.message("此封面验证不执行其他插件请求。")
+            }
+        }
+        if ProcessInfo.processInfo.arguments.contains("-YokaiGlobalSearchCheck") {
+            switch action {
+            case "load":
+                return (0..<6).map { ["id": "search-\($0)", "name": "搜索验证图源\($0)", "lang": "zh", "package": "fixture.search.\($0)"] }
+            case "filters", "popular", "latest":
+                if action == "filters" { return [Any]() }
+                return ["manga": [Any](), "hasNext": false]
+            case "search":
+                let source = arguments["source"] as? String ?? ""
+                let query = arguments["query"] as? String ?? ""
+                if source == "search-0" {
+                    // The Java bridge may finish after its Swift task was cancelled.
+                    await withCheckedContinuation { continuation in
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { continuation.resume() }
+                    }
+                }
+                if source == "search-2" { throw SourceError.message("测试图源连接失败") }
+                return ["manga": [["url": "/\(query)/\(source)", "title": "\(query)-\(source)"]], "hasNext": false]
+            default: throw SourceError.message("此搜索验证不执行插件请求。")
+            }
+        }
         let details = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("details.json"))) as! [String: Any]
         switch action {
         case "load":
@@ -54,6 +115,35 @@ enum LocalUIFixture {
             return true
         default: throw SourceError.message("此本地界面验证不执行插件请求。")
         }
+    }
+    @MainActor static func checkCovers(extensions: ExtensionStore) async {
+        guard ProcessInfo.processInfo.arguments.contains("-YokaiCoverCacheCheck"), let source = extensions.sources.first else { return }
+        let output = YokaiStorage.documents.appendingPathComponent("cover-check.json")
+        do {
+            let url = "https://cover-check.invalid/\(UUID().uuidString).png"
+            var rejected = false
+            do { _ = try await SourceCoverCache.load(source: source, url: url) } catch { rejected = true }
+            guard rejected, SourceCoverCache.shared.errors[source.id]?[url] != nil else { throw SourceError.message("A failed cover must expose its error") }
+            let session = SourceWebSession()
+            await session.prepare(source: source, address: URL(string: url), manga: nil)
+            let cookie = HTTPCookie(properties: [.domain: "cover-check.invalid", .path: "/", .name: "cover-check-clearance", .value: "verified", .secure: "TRUE"])!
+            let store = session.webView.configuration.websiteDataStore.httpCookieStore
+            await store.setCookie(cookie)
+            let revision = SourceCoverCache.shared.revisions[source.id, default: 0]
+            failCookieSync = true
+            let failed = await session.finish()
+            guard !failed, SourceCoverCache.shared.revisions[source.id, default: 0] == revision else { throw SourceError.message("Failed cookie sync must not trigger a cover retry") }
+            failCookieSync = false
+            let finished = await session.finish()
+            await store.deleteCookie(cookie)
+            guard finished, coverVerified, SourceCoverCache.shared.revisions[source.id, default: 0] == revision + 1 else { throw SourceError.message("WebView completion must sync cookies and trigger a retry") }
+            let image = try await SourceCoverCache.load(source: source, url: url)
+            let cached = try await SourceCoverCache.load(source: source, url: url)
+            guard image === cached, coverRequests == 2, SourceCoverCache.shared.errors[source.id]?[url] == nil else { throw SourceError.message("Verified cover must decode, clear its error and reuse its cache") }
+            _ = try await SourceCoverCache.load(source: source, url: url, refresh: true)
+            guard coverRequests == 3 else { throw SourceError.message("Explicit refresh must request a new cover") }
+            try JSONSerialization.data(withJSONObject: ["passed": true, "checks": ["cover errors are visible", "failed cookie sync does not retry", "WebView cookies reach the plugin", "verification completion triggers retry", "verified cover decodes and caches", "explicit refresh reloads"]]).write(to: output, options: .atomic)
+        } catch { try? JSONSerialization.data(withJSONObject: ["passed": false, "error": error.localizedDescription]).write(to: output, options: .atomic) }
     }
     @MainActor static func checkDownloads(extensions: ExtensionStore) async {
         guard ProcessInfo.processInfo.arguments.contains("-YokaiLocalDownloadCheck") else { return }

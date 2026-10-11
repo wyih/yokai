@@ -60,12 +60,15 @@ struct SavedSourceSearch: Codable, Identifiable {
 }
 
 struct GlobalSearchView: View {
+    var initialQuery = ""
     @EnvironmentObject private var extensions: ExtensionStore
     @State private var query = ""
     @State private var results: [String: [SourceManga]] = [:]
     @State private var errors: [String: String] = [:]
     @State private var searching: Task<Void, Never>?
     @State private var busy = false
+    @State private var searchedSources: [MangaSource] = []
+    @State private var submittedQuery = ""
     @AppStorage("sources.searchPinnedOnly", store: YokaiStorage.defaults) private var pinnedOnly = false
     private var sources: [MangaSource] {
         let pinned = YokaiStorage.defaults.stringArray(forKey: "sources.pinned") ?? []
@@ -76,38 +79,67 @@ struct GlobalSearchView: View {
         List {
             Toggle("仅搜索置顶图源", isOn: $pinnedOnly)
             if busy { ProgressView("正在搜索…") }
-            ForEach(sources) { source in
-                if results[source.id] != nil || errors[source.id] != nil {
-                    Section(source.name ?? source.package) {
-                        ForEach(results[source.id] ?? []) { manga in
-                            NavigationLink { SourceDetailsView(source: source, manga: manga) } label: {
-                                HStack { MangaCover(source: source, url: manga.thumbnail).frame(width: 44, height: 66); Text(manga.title) }
-                            }
+            if sources.isEmpty {
+                Text(pinnedOnly ? "没有可搜索的置顶图源" : "没有可搜索的图源").foregroundStyle(.secondary)
+            }
+            ForEach(searchedSources) { source in
+                Section(source.name ?? source.package) {
+                    ForEach(results[source.id] ?? []) { manga in
+                        NavigationLink { SourceDetailsView(source: source, manga: manga) } label: {
+                            HStack { MangaCover(source: source, url: manga.thumbnail).frame(width: 44, height: 66); Text(manga.title) }
                         }
-                        if let error = errors[source.id] { Text(error).font(.caption).foregroundStyle(.red) }
-                        else if results[source.id]?.isEmpty == true { Text("没有找到结果").foregroundStyle(.secondary) }
-                        NavigationLink("在此图源继续搜索") { SourceBrowseView(source: source, initialQuery: query) }
                     }
+                    if let error = errors[source.id] { Text(error).font(.caption).foregroundStyle(.red) }
+                    else if results[source.id]?.isEmpty == true { Text("没有找到结果").foregroundStyle(.secondary) }
+                    else if results[source.id] == nil && busy { ProgressView("正在搜索此图源…") }
+                    SourceCoverRecoveryView(source: source)
+                    NavigationLink("在此图源继续搜索") { SourceBrowseView(source: source, initialQuery: submittedQuery) }
                 }
             }
         }.navigationTitle("全局搜索").searchable(text: $query, prompt: "搜索所有启用的图源")
         .onSubmit(of: .search) { search() }
-        .toolbar { if busy { Button("取消") { searching?.cancel(); busy = false } } }
-        .onDisappear { searching?.cancel() }
+        .submitScope()
+        .task {
+            if submittedQuery.isEmpty && !initialQuery.isEmpty { query = initialQuery; search() }
+        }
+        .toolbar { if busy { Button("取消") { cancel() } } }
+        .onChange(of: pinnedOnly) { _, _ in if !submittedQuery.isEmpty { search() } }
+        .onDisappear { cancel() }
     }
+    private func cancel() { searching?.cancel(); searching = nil; busy = false }
     private func search() {
-        searching?.cancel(); results = [:]; errors = [:]
+        cancel(); results = [:]; errors = [:]; searchedSources = []
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }; busy = true
+        submittedQuery = text
+        guard !text.isEmpty, !sources.isEmpty else { return }
+        searchedSources = sources
+        let selected = searchedSources
+        busy = true
         searching = Task {
-            for source in sources {
-                guard !Task.isCancelled else { return }
-                do {
-                    let result = try await SourceEngine.call("search", ["source": source.id, "query": text, "page": 1], as: SourceResults.self)
-                    guard !Task.isCancelled else { return }; results[source.id] = result.manga
-                } catch { if !Task.isCancelled { errors[source.id] = error.localizedDescription } }
+            await withTaskGroup(of: (String, Result<[SourceManga], Error>).self) { group in
+                var remaining = selected.makeIterator()
+                // Match Android's five-source limit; publish each result as it arrives.
+                for _ in 0..<5 {
+                    if let source = remaining.next() { group.addTask { await Self.fetch(source, query: text) } }
+                }
+                for await (id, result) in group {
+                    guard !Task.isCancelled else { group.cancelAll(); return }
+                    switch result {
+                    case .success(let manga): results[id] = manga
+                    case .failure(let error): errors[id] = error.localizedDescription
+                    }
+                    if let source = remaining.next() { group.addTask { await Self.fetch(source, query: text) } }
+                }
             }
+            guard !Task.isCancelled else { return }
             busy = false
         }
+    }
+    private static func fetch(_ source: MangaSource, query: String) async -> (String, Result<[SourceManga], Error>) {
+        do {
+            try Task.checkCancellation()
+            let result = try await SourceEngine.call("search", ["source": source.id, "query": query, "page": 1], as: SourceResults.self)
+            return (source.id, .success(result.manga))
+        } catch { return (source.id, .failure(error)) }
     }
 }

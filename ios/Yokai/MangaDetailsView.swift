@@ -79,6 +79,7 @@ struct SourceDetailsView: View {
             Section {
                 header
                     .listRowSeparator(.hidden)
+                SourceCoverRecoveryView(source: source)
                 HStack(spacing: 16) {
                     Button {
                         let book = ensureBook()

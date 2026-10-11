@@ -43,7 +43,10 @@ final class HubRouter: ObservableObject {
     }
     func phase(_ phase: ScenePhase) {
         comicSession?.phase(phase)
-        if phase == .background { bookModule?.background() }
+        if phase == .background {
+            QiyeReaderModule.scheduleBackgroundRefresh()
+            bookModule?.background()
+        }
         if phase == .active {
             pendingShortcut()
             if module == .qiye { bookModule?.foreground() }
@@ -58,6 +61,7 @@ final class ReadingHubAppDelegate: UIResponder, UIApplicationDelegate {
     let router = HubRouter()
     private var observers = Set<AnyCancellable>()
     func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        QiyeReaderModule.prepareBackgroundRefresh()
         #if MIGRATE_LIVE_CONTAINER
         do { try HostKeychainMigration.perform() }
         catch { migrationError = error.localizedDescription }

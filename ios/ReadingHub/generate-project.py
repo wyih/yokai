@@ -26,11 +26,11 @@ info['CFBundleDisplayName'] = '书房'
 info['CFBundleName'] = 'ReadingHub'
 info['HubQiyeVersion'] = info['CFBundleShortVersionString']
 info['HubQiyeCommit'] = subprocess.check_output(['git', '-C', str(qiye), 'rev-parse', 'HEAD'], text=True).strip()
-info['CFBundleShortVersionString'] = '0.1.1'
-info['CFBundleVersion'] = '2'
+info['CFBundleShortVersionString'] = '0.1.5'
+info['CFBundleVersion'] = '6'
 info['CFBundleDocumentTypes'] += yokai['CFBundleDocumentTypes']
 info['UIBackgroundModes'] = ['audio','fetch','processing']
-info['BGTaskSchedulerPermittedIdentifiers'] = ['$(PRODUCT_BUNDLE_IDENTIFIER).yokai.refresh','$(PRODUCT_BUNDLE_IDENTIFIER).yokai.download.*']
+info['BGTaskSchedulerPermittedIdentifiers'] = info.get('BGTaskSchedulerPermittedIdentifiers', []) + ['$(PRODUCT_BUNDLE_IDENTIFIER).yokai.refresh','$(PRODUCT_BUNDLE_IDENTIFIER).yokai.download.*']
 info['CFBundleURLTypes'] = [{'CFBundleURLName':'com.wyih.readinghub','CFBundleURLSchemes':['readinghub']}]
 info['UIFileSharingEnabled'] = True
 migration_group = os.environ.get('HUB_MIGRATION_GROUP')

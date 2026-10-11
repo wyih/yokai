@@ -9,6 +9,8 @@ struct SourcesView: View {
     @State private var showingMore = false
     @State private var configuringSource: MangaSource?
     @State private var query = ""
+    @State private var sourceQuery = ""
+    @State private var globalSearchQuery: String?
     @State private var pinned = YokaiStorage.defaults.stringArray(forKey: "sources.pinned") ?? []
     @State private var hidden = YokaiStorage.defaults.stringArray(forKey: "sources.hidden") ?? []
     @State private var language = "all"
@@ -22,7 +24,7 @@ struct SourcesView: View {
     private var sources: [MangaSource] {
         extensions.sources.filter {
             (showHidden || !hidden.contains($0.id)) && (language == "all" || $0.lang == language)
-                && (query.isEmpty || ($0.name ?? $0.package).localizedCaseInsensitiveContains(query))
+                && (sourceQuery.isEmpty || ($0.name ?? $0.package).localizedCaseInsensitiveContains(sourceQuery))
         }.sorted { a, b in
             if pinned.contains(a.id) != pinned.contains(b.id) { return pinned.contains(a.id) }
             return (a.name ?? a.package).localizedStandardCompare(b.name ?? b.package) == .orderedAscending
@@ -33,20 +35,25 @@ struct SourcesView: View {
             List {
                 Picker("浏览", selection: $section) { Text("图源").tag("sources"); Text("插件").tag("extensions"); Text("迁移").tag("migration") }.pickerStyle(.segmented)
                 if section == "sources" {
+                    if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Button("全局搜索“\(query)”", systemImage: "magnifyingglass") { globalSearchQuery = query }
+                    }
                     Picker("语言", selection: $language) {
                         Text("全部").tag("all")
                         ForEach(Array(Set(extensions.sources.compactMap(\.lang))).sorted(), id: \.self) { Text($0).tag($0) }
                     }
                     Toggle("显示已隐藏的图源", isOn: $showHidden)
                     Section("图源") {
+                        TextField("筛选图源名称", text: $sourceQuery).submitScope()
                         ForEach(sources) { source in
                             if let error = source.error { VStack(alignment: .leading) { Text(source.package); Text(error).font(.caption).foregroundStyle(.red) } }
                             else {
                                 HStack {
                                     NavigationLink { SourceBrowseView(source: source) } label: {
                                         HStack { Image(systemName: "books.vertical"); VStack(alignment: .leading) { Text(source.name ?? source.package); Text(source.lang ?? "").font(.caption).foregroundStyle(.secondary) }; if pinned.contains(source.id) { Image(systemName: "pin.fill").font(.caption) } }
-                                    }
-                                    Button("图源设置", systemImage: "gearshape") { configuringSource = source }.labelStyle(.iconOnly).buttonStyle(.borderless)
+                                    }.accessibilityIdentifier("source-\(source.id)")
+                                    Button("设置", systemImage: "gearshape") { configuringSource = source }
+                                        .buttonStyle(.borderless).accessibilityLabel("\(source.name ?? source.package)设置")
                                 }.contextMenu {
                                     Button(pinned.contains(source.id) ? "取消置顶" : "置顶") { toggle(source.id, in: &pinned); YokaiStorage.defaults.set(pinned, forKey: "sources.pinned") }
                                     Button(hidden.contains(source.id) ? "显示" : "隐藏") { toggle(source.id, in: &hidden); YokaiStorage.defaults.set(hidden, forKey: "sources.hidden") }
@@ -60,7 +67,13 @@ struct SourcesView: View {
                 if section == "extensions" {
                     Section("插件") {
                         ForEach(extensions.installed) { item in
-                            HStack { Text(item.package.components(separatedBy: ".").last ?? item.package); Spacer(); Text(item.version).foregroundStyle(.secondary) }
+                            NavigationLink { ExtensionDetailsView(item: item) } label: {
+                                HStack {
+                                    Text(extensions.sources.first(where: { $0.package == item.package })?.name ?? item.package.components(separatedBy: ".").last ?? item.package)
+                                    Spacer()
+                                    Text(item.version).foregroundStyle(.secondary)
+                                }
+                            }.accessibilityIdentifier("extension-\(item.package)")
                                 .swipeActions { Button("卸载", role: .destructive) { uninstalling = item } }
                         }
                         Button("导入 APK / JAR 插件", systemImage: "plus") { importing = true }.disabled(extensions.busy)
@@ -79,10 +92,14 @@ struct SourcesView: View {
                     }
                 }
             }.navigationTitle("浏览").navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $query, prompt: "搜索图源")
+            .searchable(text: $query, prompt: "搜索漫画")
+            .onSubmit(of: .search) {
+                if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { globalSearchQuery = query }
+            }
+            .navigationDestination(item: $globalSearchQuery) { GlobalSearchView(initialQuery: $0) }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("更多", systemImage: "line.3.horizontal") { showingMore = true } }
-                ToolbarItem(placement: .topBarTrailing) { NavigationLink { GlobalSearchView() } label: { Image(systemName: "globe.desk") }.accessibilityLabel("全局搜索") }
+                ToolbarItem(placement: .topBarTrailing) { NavigationLink { GlobalSearchView(initialQuery: query) } label: { Image(systemName: "globe.desk") }.accessibilityLabel("全局搜索") }
             }
             .sheet(isPresented: $showingMore) { MoreView() }
             .sheet(item: $configuringSource) { SourcePreferencesView(source: $0) }
@@ -102,6 +119,36 @@ struct SourcesView: View {
         }
     }
     private func toggle(_ id: String, in items: inout [String]) { if items.contains(id) { items.removeAll { $0 == id } } else { items.append(id) } }
+}
+
+private struct ExtensionDetailsView: View {
+    let item: InstalledExtension
+    @EnvironmentObject private var extensions: ExtensionStore
+    @State private var configuringSource: MangaSource?
+    private var sources: [MangaSource] { extensions.sources.filter { $0.package == item.package } }
+    var body: some View {
+        List {
+            Section("插件信息") {
+                LabeledContent("版本", value: item.version)
+                LabeledContent("包名", value: item.package)
+            }
+            ForEach(sources) { source in
+                Section(source.name ?? source.package) {
+                    if let error = source.error { Text(error).foregroundStyle(.red) }
+                    else {
+                        NavigationLink { SourceBrowseView(source: source) } label: { Label("浏览图源", systemImage: "books.vertical") }
+                        Button("账号与图源设置", systemImage: "gearshape") { configuringSource = source }
+                    }
+                }
+            }
+            if sources.isEmpty {
+                if extensions.busy { ProgressView("正在准备图源…") }
+                else { Text(extensions.message ?? "此插件尚未加载出图源。").foregroundStyle(.secondary) }
+            }
+        }
+        .navigationTitle(sources.first?.name ?? item.package.components(separatedBy: ".").last ?? item.package)
+        .sheet(item: $configuringSource) { SourcePreferencesView(source: $0) }
+    }
 }
 
 struct SourceBrowseView: View {
@@ -134,6 +181,7 @@ struct SourceBrowseView: View {
                     }.buttonStyle(.plain)
                 }
             }.padding()
+            SourceCoverRecoveryView(source: source).padding(.horizontal)
             if busy { ProgressView("正在加载…").padding() }
             if let error {
                 Text(error).foregroundStyle(.red).padding()
@@ -148,6 +196,7 @@ struct SourceBrowseView: View {
         .navigationTitle(source.name ?? "漫画源")
         .searchable(text: $query, prompt: "搜索此漫画源")
         .onSubmit(of: .search) { Task { await load(reset: true) } }
+        .submitScope()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if source.latest == true { Button(latest ? "热门" : "最新") { latest.toggle(); filtering = false; Task { await load(reset: true) } } }
@@ -211,6 +260,7 @@ struct MangaCover: View {
     let source: MangaSource
     let url: String?
     @State private var image: UIImage?
+    @ObservedObject private var covers = SourceCoverCache.shared
     var body: some View {
         Color.secondary.opacity(0.12)
             .aspectRatio(2.0 / 3.0, contentMode: .fit)
@@ -219,15 +269,23 @@ struct MangaCover: View {
                 else { Image(systemName: "book.closed").font(.largeTitle).foregroundStyle(.secondary) }
             }
             .clipped().clipShape(RoundedRectangle(cornerRadius: 12))
-            .task(id: source.id + "\n" + (url ?? "")) {
+            .task(id: source.id + "\n" + (url ?? "") + "\n\(covers.revisions[source.id, default: 0])") {
                 image = nil
                 guard let url, !url.isEmpty else { return }
-                image = try? await SourceCoverCache.load(source: source, url: url)
+                let loaded = try? await SourceCoverCache.load(source: source, url: url)
+                if !Task.isCancelled { image = loaded }
             }
     }
 }
 
-@MainActor enum SourceCoverCache {
+@MainActor final class SourceCoverCache: ObservableObject {
+    static let shared = SourceCoverCache()
+    @Published private(set) var revisions: [String: Int] = [:]
+    @Published private(set) var errors: [String: [String: String]] = [:]
+    func retry(_ sourceID: String) {
+        errors[sourceID] = nil
+        revisions[sourceID, default: 0] += 1
+    }
     private static let memory: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>(); cache.totalCostLimit = 32 * 1024 * 1024; return cache
     }()
@@ -239,28 +297,52 @@ struct MangaCover: View {
         if !refresh, let cached = await Task.detached(priority: .utility, operation: {
             UIImage(contentsOfFile: file.path)?.preparingThumbnail(of: CGSize(width: 360, height: 540))
         }).value { remember(cached, key: key); return cached }
-        let headers = try await SourceEngine.call("imageRequest", ["source": source.id, "url": url], as: [String: String].self)
-        guard let address = URL(string: url), ["https", "http"].contains(address.scheme?.lowercased() ?? "") else {
-            throw SourceError.message("图源没有提供有效的封面地址。")
-        }
-        var request = URLRequest(url: address)
-        if refresh { request.cachePolicy = .reloadIgnoringLocalCacheData }
-        for (key, value) in headers where key.lowercased() != "accept-encoding" { request.setValue(value, forHTTPHeaderField: key) }
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let response = response as? HTTPURLResponse, response.statusCode == 200 else {
-            throw SourceError.message("图源返回了封面请求错误（HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)）。")
-        }
-        let image = try await Task.detached(priority: .utility) {
-            guard let image = UIImage(data: data)?.preparingThumbnail(of: CGSize(width: 360, height: 540)) else { throw SourceError.message("图源返回的封面无法读取。") }
+        let temporary = root.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        do {
+            guard let address = URL(string: url), ["https", "http"].contains(address.scheme?.lowercased() ?? "") else {
+                throw SourceError.message("图源没有提供有效的封面地址。")
+            }
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            try data.write(to: file, options: .atomic)
+            // Use the plugin's client so headers, interceptors and verification cookies stay together.
+            let _: Bool = try await SourceEngine.call("cover", ["source": source.id, "url": url, "path": temporary.path, "refresh": refresh || shared.revisions[source.id, default: 0] > 0], as: Bool.self)
+            try Task.checkCancellation()
+            let image = try await Task.detached(priority: .utility) {
+                let data = try Data(contentsOf: temporary)
+                guard let image = UIImage(data: data)?.preparingThumbnail(of: CGSize(width: 360, height: 540)) else { throw SourceError.message("图源返回的封面无法读取。") }
+                try data.write(to: file, options: .atomic)
+                return image
+            }.value
+            shared.errors[source.id]?[url] = nil
+            remember(image, key: key)
             return image
-        }.value
-        remember(image, key: key)
-        return image
+        } catch {
+            if !Task.isCancelled { shared.errors[source.id, default: [:]][url] = error.localizedDescription }
+            throw error
+        }
     }
     private static func remember(_ image: UIImage, key: String) {
         memory.setObject(image, forKey: key as NSString, cost: (image.cgImage?.bytesPerRow ?? 0) * (image.cgImage?.height ?? 0))
+    }
+}
+
+struct SourceCoverRecoveryView: View {
+    let source: MangaSource
+    @ObservedObject private var covers = SourceCoverCache.shared
+    @State private var verifying = false
+    @State private var address: URL?
+    var body: some View {
+        Group {
+            if let failed = covers.errors[source.id]?.sorted(by: { $0.key < $1.key }).first {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("封面加载失败：" + failed.value).font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        Button("重试封面") { covers.retry(source.id) }
+                        Button("打开 WebView 验证", systemImage: "globe") { address = URL(string: failed.key); verifying = true }
+                    }.buttonStyle(.borderless)
+                }
+            }
+        }.sheet(isPresented: $verifying) { SourceLoginView(source: source, address: address) }
     }
 }
 
@@ -444,12 +526,13 @@ struct SourceLoginView: View {
     }
 }
 
-@MainActor private final class SourceWebSession: NSObject, ObservableObject, WKNavigationDelegate {
+@MainActor final class SourceWebSession: NSObject, ObservableObject, WKNavigationDelegate {
     let webView: WKWebView
     @Published var busy = false
     @Published var error: String?
     private var hosts = Set<String>()
     private var prepared = false
+    private var sourceID: String?
     override init() {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = WKWebsiteDataStore(forIdentifier: UUID(uuidString: "EC3C534C-B995-45D9-98AA-60B85A63C0B7")!)
@@ -459,6 +542,7 @@ struct SourceLoginView: View {
     }
     func prepare(source: MangaSource, address: URL?, manga: SourceManga?) async {
         guard !prepared else { return }; prepared = true; busy = true
+        sourceID = source.id
         defer { busy = false }
         do {
             var arguments: [String: Any] = ["source": source.id]
@@ -493,6 +577,7 @@ struct SourceLoginView: View {
                 return value
             }
             let _: Bool = try await SourceEngine.call("cookies", ["cookies": values, "hosts": Array(hosts)], as: Bool.self)
+            if let sourceID { SourceCoverCache.shared.retry(sourceID) }
             return true
         } catch { self.error = "登录信息同步失败：" + error.localizedDescription; return false }
     }

@@ -69,8 +69,10 @@ public class FilterCheck {
   HttpServer server=HttpServer.create(new java.net.InetSocketAddress("127.0.0.1",0),0);
   ExecutorService requests=Executors.newFixedThreadPool(3), replies=Executors.newFixedThreadPool(2);
   CountDownLatch arrived=new CountDownLatch(2), release=new CountDownLatch(1);
+  List<String> cacheDirectives=Collections.synchronizedList(new ArrayList<>());
   server.setExecutor(replies);
   server.createContext("/image",exchange->{
+   cacheDirectives.add(exchange.getRequestHeaders().getFirst("Cache-Control"));
    arrived.countDown();
    try{if(!release.await(10,TimeUnit.SECONDS))throw new java.io.IOException("Release timed out");}catch(InterruptedException e){throw new java.io.IOException(e);}
    byte[] image=Base64.getDecoder().decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII=");
@@ -80,7 +82,7 @@ public class FilterCheck {
   try {
    String imageUrl="http://127.0.0.1:"+server.getAddress().getPort()+"/image", selected=sourceId;
    List<Future<?>> transfers=new ArrayList<>();
-   for(int i=0;i<2;i++){final int index=i;transfers.add(requests.submit(()->call(new JSONObject().put("action","cover").put("source",selected).put("url",imageUrl).put("path",Path.of(args[1]).resolve("parallel-"+index+".png").toString()))));}
+   for(int i=0;i<2;i++){final int index=i;transfers.add(requests.submit(()->call(new JSONObject().put("action","cover").put("source",selected).put("url",imageUrl).put("refresh",index==1).put("path",Path.of(args[1]).resolve("parallel-"+index+".png").toString()))));}
    if(!arrived.await(10,TimeUnit.SECONDS))throw new AssertionError("Runtime image requests were serialized");
    CountDownLatch reloading=new CountDownLatch(1);
    Future<?> reload=requests.submit(()->{reloading.countDown();return call(new JSONObject().put("action","load").put("extensions",extensions).put("dataPath",Path.of(args[1]).resolve("preferences").toString()));});
@@ -88,6 +90,7 @@ public class FilterCheck {
    try{reload.get(150,TimeUnit.MILLISECONDS);throw new AssertionError("Class loader changed during active requests");}catch(TimeoutException expected){}
    release.countDown();for(Future<?> transfer:transfers)transfer.get(10,TimeUnit.SECONDS);reload.get(10,TimeUnit.SECONDS);
    for(int i=0;i<2;i++)if(Files.size(Path.of(args[1]).resolve("parallel-"+i+".png"))<32)throw new AssertionError("Concurrent image was not saved");
+   if(!cacheDirectives.contains("no-cache"))throw new AssertionError("Explicit cover refresh reused the HTTP cache");
    System.out.println("Two original-source image transfers overlapped; extension reload waited for both.");
   } finally {release.countDown();server.stop(0);requests.shutdownNow();replies.shutdownNow();}
   System.exit(0);

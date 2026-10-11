@@ -22,7 +22,7 @@ xcodebuild -project "$task_ios/Yokai.xcodeproj" -scheme Yokai -configuration "$t
   -destination "platform=macOS,variant=Mac Catalyst,arch=$task_arch" -derivedDataPath "$task_ios/.macDerivedData" \
   CODE_SIGNING_ALLOWED=NO DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER=NO \
   PRODUCT_BUNDLE_IDENTIFIER=com.wyih.yokai.desktop ENABLE_APP_SANDBOX=NO \
-  MARKETING_VERSION=0.1.0 CURRENT_PROJECT_VERSION=1 OTHER_LDFLAGS='-lc++ -lz' build \
+  MARKETING_VERSION=0.1.3 CURRENT_PROJECT_VERSION=4 OTHER_LDFLAGS='-lc++ -lz' build \
   > "$task_ios/build/mac-build.log" 2>&1
 python3 "$task_root/desktop/package-mac.py" \
   "$task_ios/.macDerivedData/Build/Products/$task_configuration-maccatalyst/Yokai.app" \

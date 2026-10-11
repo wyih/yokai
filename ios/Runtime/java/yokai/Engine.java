@@ -174,7 +174,9 @@ public final class Engine {
         if(action.equals("cover")) {
             if(!(source instanceof HttpSource))throw new IOException("此源未提供 HTTP 图片下载。");
             HttpSource http=(HttpSource)source;
-            okhttp3.Request request=new okhttp3.Request.Builder().url(q.getString("url")).headers(http.getHeaders()).build();
+            okhttp3.Request.Builder builder=new okhttp3.Request.Builder().url(q.getString("url")).headers(http.getHeaders());
+            if(q.optBoolean("refresh"))builder.cacheControl(okhttp3.CacheControl.FORCE_NETWORK);
+            okhttp3.Request request=builder.build();
             try(okhttp3.Response response=http.getClient().newCall(request).execute()) {
                 if(!response.isSuccessful())throw new IOException("封面加载失败（HTTP "+response.code()+"）");
                 try(OutputStream out=new FileOutputStream(q.getString("path"))){byte[] buffer=new byte[64*1024];InputStream in=response.body().byteStream();int count;while((count=in.read(buffer))!=-1)out.write(buffer,0,count);}

@@ -5,6 +5,7 @@ struct BookCover: View {
     @EnvironmentObject private var library: ComicLibrary
     @EnvironmentObject private var extensions: ExtensionStore
     @State private var image: UIImage?
+    @ObservedObject private var covers = SourceCoverCache.shared
 
     var body: some View {
         Color.secondary.opacity(0.12).aspectRatio(2.0 / 3.0, contentMode: .fit).overlay {
@@ -15,7 +16,7 @@ struct BookCover: View {
             let loaded = await library.loadCover(for: book)
             if !Task.isCancelled { image = loaded }
         }
-        .task(id: (book.origin?.thumbnail ?? "") + extensions.sources.map(\.id).joined()) {
+        .task(id: (book.origin?.thumbnail ?? "") + extensions.sources.map(\.id).joined() + "\n\(covers.revisions[book.origin?.sourceID ?? "", default: 0])") {
             if let source = extensions.sources.first(where: { $0.id == book.origin?.sourceID }) { await library.cacheSourceCover(book, source: source) }
         }
     }

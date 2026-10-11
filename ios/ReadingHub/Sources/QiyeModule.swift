@@ -3,6 +3,12 @@ import UIKit
 /// Compiled in the QiyeModule framework alongside the complete existing app.
 @MainActor
 public final class QiyeReaderModule {
+    public static func prepareBackgroundRefresh() {
+        SubscriptionBackground.shared.register()
+        try? SubscriptionBackground.shared.prepare()
+        scheduleBackgroundRefresh()
+    }
+    public static func scheduleBackgroundRefresh() { SubscriptionBackground.shared.schedule() }
     private let reader = ReaderViewController()
     public init() {}
     public var viewController: UIViewController { reader }
