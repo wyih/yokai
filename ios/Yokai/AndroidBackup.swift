@@ -25,6 +25,7 @@ struct AndroidShelfBackup: Decodable {
     struct Manga: Decodable {
         struct Chapter: Decodable {
             let url, name, memo: String
+            let scanlator: String?
             let read, bookmark: Bool
             let lastPage, pagesLeft: Int
             let readAt: Int64
@@ -47,7 +48,7 @@ struct AndroidShelfBackup: Decodable {
             SourceDetails(manga: SourceManga(url: url, title: title, thumbnail: thumbnail,
                 author: author, artist: artist, description: description, genre: genre.joined(separator: ", "), status: status, memo: validAndroidMemo(memo)),
                 chapters: chapters.sorted { $0.sourceOrder < $1.sourceOrder }.map {
-                    SourceChapter(url: $0.url, name: $0.name, number: $0.number, uploaded: $0.uploaded, memo: validAndroidMemo($0.memo))
+                    SourceChapter(url: $0.url, name: $0.name, number: $0.number, uploaded: $0.uploaded, memo: validAndroidMemo($0.memo), scanlator: $0.scanlator)
                 })
         }
     }
@@ -276,10 +277,12 @@ enum AndroidBackupService {
                 "favorite": book.inLibrary != false, "addedAt": Int64(book.importedAt.timeIntervalSince1970 * 1000), "categories": book.categories ?? [],
                 "androidData": book.androidBackupData ?? "", "chapters": chapters.enumerated().map { index, chapter -> [String: Any] in
                     let state = book.chapters?.first { $0.url == chapter.url }
-                    return ["url": chapter.url, "name": chapter.name, "number": chapter.number, "uploaded": chapter.uploaded, "sourceOrder": index,
+                    var value: [String: Any] = ["url": chapter.url, "name": chapter.name, "number": chapter.number, "uploaded": chapter.uploaded, "sourceOrder": index,
                         "memo": chapter.memo ?? "{}", "read": state?.completed ?? false, "bookmark": state?.bookmarked ?? false,
                         "lastPage": state?.lastPage ?? 0, "pagesLeft": max(0, (state?.pageCount ?? 1) - (state?.lastPage ?? 0) - 1),
                         "readAt": Int64((state?.lastRead?.timeIntervalSince1970 ?? 0) * 1000)]
+                    if let scanlator = chapter.scanlator { value["scanlator"] = scanlator }
+                    return value
                 }]
             if let thumbnail = origin.thumbnail { item["thumbnail"] = thumbnail }
             if let memo = origin.mangaMemo { item["memo"] = memo }

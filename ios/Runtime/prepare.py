@@ -103,13 +103,18 @@ with zipfile.ZipFile(download('suwayomi.jar')) as archive:
         if not item.is_dir() and not item.filename.endswith('.class') and any(part.lower().startswith(('license','notice','copying')) for part in Path(item.filename).parts):
             (notices/f'{index}-{item.filename.replace("/", "_")}').write_bytes(archive.read(item))
 
+# The mobile static VM omits libverify, used by pre-Java-6 dependency classes.
+run(JDK/'bin/javac', '--release', '17', '-cp', BUILD/'compat.jar', '-d', BUILD, SOURCE/'ModernizeBytecode.java')
+run(JDK/'bin/java', '-cp', str(BUILD)+':'+str(BUILD/'compat.jar'), 'ModernizeBytecode', BUILD/'compat.jar', BUILD/'compat-modern.jar')
+(BUILD/'compat-modern.jar').replace(BUILD/'compat.jar')
+
 classes = BUILD/'engine-classes'
 classes.mkdir(exist_ok=True)
 run(JDK/'bin/javac', '--release','17','-cp',BUILD/'compat.jar','-d',classes,*sorted((SOURCE/'java').rglob('*.java')))
 run(JDK/'bin/jar','cf',BUILD/'Engine.jar','-C',classes,'.')
 
 modules = BUILD/'lib/lib/modules'
-if not modules.exists():
+if not modules.exists() or modules.stat().st_mtime < (SOURCE/'JimageBuilder.java').stat().st_mtime:
     base = BUILD/'module-build/baseclasses'
     base.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(download('java.base-device.zip')) as archive:
@@ -132,8 +137,9 @@ extensions.mkdir(exist_ok=True)
 for name in ['vomic','bakamh','boylove','manwa','picacomic']:
     shutil.copy2(download(name+'.jar'),extensions/(name+'.jar'))
 shutil.copy2(SOURCE/'bundled/huakacomic.jar',extensions/'huakacomic.jar')
-run(JDK/'bin/javac','--release','17','-cp',BUILD/'compat.jar','-d',BUILD,SOURCE/'ConvertApk.java')
+converter_cp = str(BUILD)+':'+str(BUILD/'Engine.jar')+':'+str(BUILD/'compat.jar')
+run(JDK/'bin/javac','--release','17','-cp',converter_cp,'-d',BUILD,SOURCE/'ConvertApk.java')
 for name in ['copymanga','hotmangas']:
     if not (extensions/(name+'.jar')).exists():
-        run(JDK/'bin/java','-cp',str(BUILD)+':'+str(BUILD/'compat.jar'),'ConvertApk',download(name+'.apk'),extensions/(name+'.jar'))
+        run(JDK/'bin/java','-cp',converter_cp,'ConvertApk',download(name+'.apk'),extensions/(name+'.jar'))
 print('Prepared:', BUILD, flush=True)

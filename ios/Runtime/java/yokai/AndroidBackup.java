@@ -107,7 +107,7 @@ public final class AndroidBackup {
             for(long order:m.integers(17)){String name=categoryNames.get(order);if(name!=null&&!name.isEmpty())categories.put(name);}
             for(byte[] c:m.messages(16)){
                 Message row=new Message(c);String url=row.text(1,"");if(url.isEmpty())continue;
-                chapters.put(new JSONObject().put("url",url).put("name",row.text(2,"章节"))
+                chapters.put(new JSONObject().put("url",url).put("name",row.text(2,"章节")).put("scanlator",row.text(3,""))
                     .put("read",row.integer(4,0)!=0).put("bookmark",row.integer(5,0)!=0)
                     .put("lastPage",Math.max(0,row.integer(6,0))).put("pagesLeft",Math.max(0,row.integer(800,0)))
                     .put("number",row.decimal(9,-1)).put("uploaded",row.integer(8,0)).put("sourceOrder",row.integer(10,0))
@@ -185,7 +185,10 @@ public final class AndroidBackup {
             JSONArray chapters=b.optJSONArray("chapters");if(chapters==null)chapters=new JSONArray();
             for(int j=0;j<chapters.length();j++) {
                 JSONObject c=chapters.getJSONObject(j);String url=c.getString("url");Message prior=new Message(previous.getOrDefault(url,new byte[0]));Writer chapter=new Writer();
-                chapter.writeBytes(prior.excluding(Set.of(1,2,4,5,6,8,9,10,13,800)));
+                Set<Integer> chapterFields=new HashSet<>(Set.of(1,2,4,5,6,8,9,10,13,800));
+                if(c.has("scanlator"))chapterFields.add(3);
+                chapter.writeBytes(prior.excluding(chapterFields));
+                if(c.has("scanlator")&&!c.optString("scanlator","").isEmpty())chapter.text(3,c.getString("scanlator"));
                 chapter.text(1,url).text(2,c.getString("name")).integer(4,c.optBoolean("read",false)?1:0)
                     .integer(5,c.optBoolean("bookmark",false)?1:0).integer(6,c.optInt("lastPage",0)).integer(800,c.optInt("pagesLeft",0))
                     .integer(8,c.optLong("uploaded",prior.integer(8,0))).decimal(9,c.optDouble("number",prior.decimal(9,-1)))

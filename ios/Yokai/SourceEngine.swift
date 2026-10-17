@@ -65,6 +65,9 @@ struct SourceChapter: Codable, Identifiable, Equatable {
     var number: Double
     var uploaded: Int64
     var memo: String?
+    var scanlator: String? = nil
+
+    var scanlatorKey: String { (scanlator ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
 }
 struct SourcePage: Codable, Identifiable {
     var id: Int { index }

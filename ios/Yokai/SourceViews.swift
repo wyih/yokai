@@ -154,6 +154,7 @@ private struct ExtensionDetailsView: View {
 struct SourceBrowseView: View {
     let source: MangaSource
     var initialQuery = ""
+    @EnvironmentObject private var library: ComicLibrary
     @State private var query = ""
     @State private var manga: [SourceManga] = []
     @State private var page = 1
@@ -169,6 +170,7 @@ struct SourceBrowseView: View {
     @State private var saved: [SavedSourceSearch] = []
     @State private var savingSearch = false
     @State private var searchName = ""
+    @State private var categoryBook: ComicBook?
     var body: some View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 16)], spacing: 22) {
@@ -176,9 +178,25 @@ struct SourceBrowseView: View {
                     NavigationLink { SourceDetailsView(source: source, manga: item) } label: {
                         VStack(alignment: .leading, spacing: 7) {
                             MangaCover(source: source, url: item.thumbnail)
+                                .overlay(alignment: .topTrailing) {
+                                    if isFavorite(item) {
+                                        Image(systemName: "heart.fill").foregroundStyle(.white)
+                                            .padding(6).background(.black.opacity(0.65), in: Circle()).padding(6)
+                                            .accessibilityLabel("已在书架")
+                                    }
+                                }
                             Text(item.title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(2)
                         }
                     }.buttonStyle(.plain)
+                        .contextMenu {
+                            Button(isFavorite(item) ? "移出书架" : "加入书架", systemImage: isFavorite(item) ? "heart.slash" : "heart") {
+                                toggleFavorite(item)
+                            }.accessibilityIdentifier("browseFavorite")
+                            if isFavorite(item), let book = storedBook(item) {
+                                Button("分类", systemImage: "folder") { categoryBook = book }.accessibilityIdentifier("browseCategory")
+                            }
+                        }
+                        .accessibilityIdentifier("browse-manga-" + item.id)
                 }
             }.padding()
             SourceCoverRecoveryView(source: source).padding(.horizontal)
@@ -215,6 +233,7 @@ struct SourceBrowseView: View {
             }
         }
         .sheet(isPresented: $settings, onDismiss: { Task { await load(reset: true) } }) { SourcePreferencesView(source: source) }
+        .sheet(item: $categoryBook) { CategoryAssignmentView(bookIDs: [$0.id]) }
         .sheet(isPresented: $webView, onDismiss: { Task { await load(reset: true) } }) { SourceLoginView(source: source) }
         .task {
             query = initialQuery; saved = SavedSourceSearch.read(source.id)
@@ -238,6 +257,18 @@ struct SourceBrowseView: View {
             Button("保存") { let name = searchName.trimmingCharacters(in: .whitespacesAndNewlines); if !name.isEmpty { saved.append(SavedSourceSearch(name: name, query: query, filters: filters)); SavedSourceSearch.save(saved, source: source.id) } }
             Button("取消", role: .cancel) {}
         }
+    }
+    private func storedBook(_ manga: SourceManga) -> ComicBook? {
+        library.books.first { $0.origin?.sourceID == source.id && $0.origin?.mangaURL == manga.url }
+    }
+    private func isFavorite(_ manga: SourceManga) -> Bool {
+        storedBook(manga).map { $0.inLibrary != false } ?? false
+    }
+    private func toggleFavorite(_ manga: SourceManga) {
+        let adding = !isFavorite(manga)
+        let book = storedBook(manga) ?? library.addOnline(manga, source: source, favorite: false)
+        library.setFavorite(adding, bookID: book.id)
+        if adding, YokaiStorage.defaults.string(forKey: "library.defaultCategory") == "ask" { categoryBook = book }
     }
     private func load(reset: Bool) async {
         guard !busy else { return }

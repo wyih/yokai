@@ -17,7 +17,8 @@ public class JimageBuilder {
         }
         entries.put("/java.base/module-info.class", Files.readAllBytes(Paths.get("module-build/java.base-module-info.class")));
         Path jmods = Paths.get(args[1]);
-        for (String module : List.of("java.logging", "java.xml", "jdk.unsupported")) {
+        // Dex2jar writes converted APKs through the JAR filesystem provider.
+        for (String module : List.of("java.logging", "java.xml", "jdk.unsupported", "jdk.zipfs")) {
             try (ZipFile zip = new ZipFile(jmods.resolve(module + ".jmod").toFile())) {
                 for (var item : Collections.list(zip.entries())) {
                     if (!item.isDirectory() && item.getName().startsWith("classes/"))

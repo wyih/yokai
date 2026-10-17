@@ -9,6 +9,24 @@ import ZIPFoundation
 enum LocalUIFixture {
     static var enabled: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiLocalUIFixture") }
     private static var root: URL { YokaiStorage.documents.appendingPathComponent("UIFixture") }
+    private static var metadataCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiMetadataCheck") }
+    private static var metadataFeaturesCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiMetadataFeaturesCheck") }
+    private static var sourceFilterCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiLibrarySourceFilterCheck") }
+    private static var readerCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiReaderInteractionCheck") }
+    private static var readerImageCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiReaderImageCheck") }
+    private static var historyCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiHistoryBatchCheck") }
+    private static let metadataManga = SourceManga(
+        url: "/metadata/full",
+        title: "复制验证：在遥远星空下与伙伴一起寻找失落书页的漫长旅程——这是一段超过详情标题显示行数的完整标题，包含空格 Full Title & 最后不能遗漏的尾声",
+        author: "作者甲 / Author A", artist: "画师乙 / Artist B",
+        description: "简介第一段：可选择并复制的完整文字。\n简介第二段：保留换行与标点。")
+    private static let emptyMetadataManga = SourceManga(url: "/metadata/empty", title: "空元数据验证", author: "")
+    private static let featureManga = SourceManga(url: "/metadata/features", title: "详情组合验证",
+        author: "作者甲 / Author A", artist: "画师乙 / Artist B", genre: "冒险， 科幻\n冒险")
+    private static let featureColdManga = SourceManga(url: "/metadata/features-cold", title: "无缓存验证")
+    private static let imageManga = SourceManga(url: "/reader-image/book", title: "坏图与文字验证")
+    private static let imageChapter = SourceChapter(url: "/reader-image/chapter", name: "修复验证章节", number: 1, uploaded: 0)
+    @MainActor private static var featureDetailsRequests: [String: Int] = [:]
     @MainActor private static var activeImages = 0
     @MainActor private static var maxImages = 0
     @MainActor private static var imageRequests: [Int: Int] = [:]
@@ -18,6 +36,54 @@ enum LocalUIFixture {
     @MainActor private static var coverVerified = false
     @MainActor private static var failCookieSync = false
     @MainActor static func response(_ action: String, _ arguments: [String: Any]) async throws -> Any {
+        if readerImageCheck {
+            switch action {
+            case "load": return [["id": "reader-image", "name": "图片验证图源", "lang": "zh", "package": "fixture.reader.image"]]
+            case "details": return try SourceEngine.object(SourceDetails(manga: imageManga, chapters: [imageChapter]))
+            case "filters": return [Any]()
+            case "popular", "latest": return ["manga": [try SourceEngine.object(imageManga)], "hasNext": false]
+            case "webViewInfo": return ["url": "https://example.org/reader-image", "headers": [String: String]()]
+            case "pages": return [["index": 0, "url": "/reader-image/page", "imageURL": "https://example.org/reader-image.png"]]
+            case "image":
+                let format = UIGraphicsImageRendererFormat(); format.scale = 1
+                let image = UIGraphicsImageRenderer(size: CGSize(width: 240, height: 360), format: format).image { context in
+                    UIColor.blue.setFill(); context.fill(CGRect(x: 0, y: 0, width: 240, height: 360))
+                }
+                try image.pngData()!.write(to: URL(fileURLWithPath: arguments["path"] as! String), options: .atomic)
+                return true
+            default: throw SourceError.message("坏图验证不执行其他插件请求。")
+            }
+        }
+        if metadataFeaturesCheck {
+            switch action {
+            case "load":
+                return (0..<4).map { ["id": "metadata-features-\($0)", "name": "详情验证图源\($0)", "lang": "zh", "package": "fixture.metadata.\($0)"] }
+            case "filters": return [Any]()
+            case "popular", "latest":
+                return ["manga": try [featureManga, featureColdManga].map { try SourceEngine.object($0) }, "hasNext": false]
+            case "details":
+                let input = arguments["manga"] as? [String: Any] ?? [:]
+                var manga = input["url"] as? String == featureColdManga.url ? featureColdManga : featureManga
+                let key = (arguments["source"] as? String ?? "") + "\n" + manga.url
+                featureDetailsRequests[key, default: 0] += 1
+                manga.description = "详情请求次数：\(featureDetailsRequests[key]!)"
+                let chapters = [("a", "甲组章节", "汉化组甲"), ("b", "乙组章节", "汉化组乙"),
+                                ("c", "丙组章节", "汉化组丙"), ("unknown", "未标注章节", "")].enumerated().map { index, item in
+                    SourceChapter(url: manga.url + "/" + item.0, name: item.1, number: Double(index + 1), uploaded: 0, scanlator: item.2)
+                }
+                return try SourceEngine.object(SourceDetails(manga: manga, chapters: chapters))
+            case "search":
+                let source = arguments["source"] as? String ?? ""
+                let query = arguments["query"] as? String ?? ""
+                return ["manga": [["url": "/\(query)/\(source)", "title": "\(query)-\(source)"]], "hasNext": false]
+            case "webViewInfo": return ["url": "https://example.org/metadata", "headers": [String: String]()]
+            default: throw SourceError.message("详情组合验证不执行其他插件请求。")
+            }
+        }
+        if readerCheck || historyCheck {
+            if action == "load" { return [Any]() }
+            throw SourceError.message("阅读与历史验证仅使用本地漫画。")
+        }
         if ProcessInfo.processInfo.arguments.contains("-YokaiSourceNavigationCheck") {
             switch action {
             case "load":
@@ -54,17 +120,25 @@ enum LocalUIFixture {
             default: throw SourceError.message("此封面验证不执行其他插件请求。")
             }
         }
-        if ProcessInfo.processInfo.arguments.contains("-YokaiGlobalSearchCheck") {
+        if ProcessInfo.processInfo.arguments.contains("-YokaiGlobalSearchCheck") || metadataCheck || sourceFilterCheck {
             switch action {
             case "load":
                 return (0..<6).map { ["id": "search-\($0)", "name": "搜索验证图源\($0)", "lang": "zh", "package": "fixture.search.\($0)"] }
             case "filters", "popular", "latest":
                 if action == "filters" { return [Any]() }
+                if metadataCheck {
+                    return ["manga": try [metadataManga, emptyMetadataManga].map { try SourceEngine.object($0) }, "hasNext": false]
+                }
                 return ["manga": [Any](), "hasNext": false]
+            case "details":
+                let manga = arguments["manga"] as? [String: Any] ?? [:]
+                let information = manga["url"] as? String == emptyMetadataManga.url ? emptyMetadataManga : metadataManga
+                return ["manga": try SourceEngine.object(information), "chapters": [Any]()]
+            case "webViewInfo": return ["url": "https://example.org/metadata", "headers": [String: String]()]
             case "search":
                 let source = arguments["source"] as? String ?? ""
                 let query = arguments["query"] as? String ?? ""
-                if source == "search-0" {
+                if source == "search-0" && !metadataCheck {
                     // The Java bridge may finish after its Swift task was cancelled.
                     await withCheckedContinuation { continuation in
                         DispatchQueue.main.asyncAfter(deadline: .now() + 8) { continuation.resume() }
@@ -236,6 +310,67 @@ enum LocalUIFixture {
         } catch { try? JSONSerialization.data(withJSONObject: ["passed": false, "error": error.localizedDescription]).write(to: output, options: .atomic) }
     }
     @MainActor static func checkFiles(library: ComicLibrary, extensions: ExtensionStore) async {
+        if readerImageCheck, let source = extensions.sources.first(where: { $0.id == "reader-image" }) {
+            do {
+                for book in library.books where book.origin?.sourceID == source.id { library.remove(book) }
+                let book = library.addOnline(imageManga, source: source)
+                library.saveDetails(SourceDetails(manga: imageManga, chapters: [imageChapter]), source: source)
+                library.setReaderSettings(MangaReaderSettings(mode: "webtoon", trimBorders: false, layout: "single"), bookID: book.id)
+                _ = library.openChapter(imageChapter, pages: 1, bookID: book.id)
+                let directory = library.chapterDirectory(bookID: book.id, chapterURL: imageChapter.url)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try Data("not an image".utf8).write(to: directory.appendingPathComponent("000000"), options: .atomic)
+                try JSONEncoder().encode(CachedChapter(chapter: imageChapter, pageCount: 1))
+                    .write(to: directory.appendingPathComponent("chapter.json"), options: .atomic)
+                YokaiStorage.defaults.set(true, forKey: "reader.longTap")
+            } catch { library.errorMessage = error.localizedDescription }
+        }
+        if metadataFeaturesCheck, let source = extensions.sources.first(where: { $0.id == "metadata-features-1" }) {
+            for book in library.books where book.origin?.sourceID.hasPrefix("metadata-features-") == true {
+                library.remove(book)
+            }
+            let defaults = YokaiStorage.defaults
+            defaults.set(true, forKey: SourceDetailsRefreshPolicy.enabledKey)
+            defaults.set(SourceDetailsRefreshPolicy.defaultInterval, forKey: SourceDetailsRefreshPolicy.intervalKey)
+            defaults.set(["metadata-features-3"], forKey: "sources.pinned")
+            defaults.set(false, forKey: "sources.searchPinnedOnly")
+            defaults.set("", forKey: "library.defaultCategory")
+            for manga in [featureManga] {
+                let book = library.addOnline(manga, source: source, favorite: false)
+                defaults.removeObject(forKey: "chapters.display." + book.id)
+                defaults.removeObject(forKey: "cache.details.lastFetched." + book.id)
+            }
+            let captured = library.snapshot()
+            var state = captured
+            if let index = state.books.firstIndex(where: { $0.origin?.mangaURL == featureManga.url && $0.origin?.sourceID == source.id }) {
+                state.books[index].lastRead = Date()
+            }
+            library.acceptSync(state, captured: captured)
+        }
+        if readerCheck || historyCheck {
+            do { try prepareReaderAndHistory(library: library) }
+            catch { library.errorMessage = error.localizedDescription }
+        }
+        if metadataCheck || sourceFilterCheck {
+            let captured = library.snapshot()
+            var state = captured
+            let local = ComicBook(id: ComicLibrary.hash("metadata-local"), title: "复制验证本地漫画", format: .images, pageCount: 1, importedAt: Date())
+            var missing = ComicBook(id: ComicLibrary.hash("metadata-uninstalled\n/metadata/missing"), title: "复制验证缺失图源漫画", format: .images, pageCount: 1, importedAt: Date())
+            missing.origin = ComicOrigin(sourceID: "metadata-uninstalled", mangaURL: "/metadata/missing")
+            for var book in [local, missing] {
+                book.mangaInfo = MangaMetadata(author: metadataManga.author, artist: metadataManga.artist,
+                                              chapterCount: 0, latestUpload: 0, fetchedAt: Date())
+                state.books.removeAll { $0.id == book.id }
+                state.books.append(book)
+                state.deleted.removeValue(forKey: book.id)
+            }
+            library.acceptSync(state, captured: captured)
+            if sourceFilterCheck {
+                for source in extensions.sources where ["search-1", "search-3"].contains(source.id) {
+                    _ = library.addOnline(SourceManga(url: "/source-filter/\(source.id)", title: "复制验证图源漫画-\(source.id)"), source: source)
+                }
+            }
+        }
         guard ProcessInfo.processInfo.arguments.contains("-YokaiLocalFileCheck") else { return }
         let output = root.appendingPathComponent("file-check.json")
         do {
@@ -308,6 +443,52 @@ enum LocalUIFixture {
             }
             try JSONSerialization.data(withJSONObject: ["passed": true, "checks": ["CBZ extraction/dimensions after deleting original image files", "spread splitting", "split completion and completed chapter rereading", "native shelf/settings export", "native backup restore with chapter order"]]).write(to: output, options: .atomic)
         } catch { try? JSONSerialization.data(withJSONObject: ["passed": false, "error": error.localizedDescription]).write(to: output, options: .atomic) }
+    }
+    @MainActor private static func prepareReaderAndHistory(library: ComicLibrary) throws {
+        let captured = library.snapshot()
+        var state = captured
+        var fixtures: [ComicBook] = []
+        if readerCheck {
+            let defaults = YokaiStorage.defaults
+            defaults.set(ReaderToolbarItem.defaults, forKey: "reader.toolbar.items")
+            defaults.set(120.0, forKey: "autoScrollSpeed")
+            defaults.set(true, forKey: "reader.holdToScroll")
+            defaults.set(true, forKey: "reader.longTap")
+            defaults.set(0, forKey: "reader.sidePadding")
+            for mode in ["pager", "webtoon"] {
+                defaults.set("default", forKey: "tapZones.\(mode).preset")
+                defaults.set("none", forKey: "tapZones.\(mode).invert")
+                defaults.set("columns", forKey: "tapZones.\(mode).layout")
+                defaults.set(TapZones.defaults, forKey: "tapZones.\(mode).actions")
+            }
+            var book = ComicBook(id: ComicLibrary.hash("reader-interaction"), title: "阅读手势验证", format: .images, pageCount: 6, importedAt: Date())
+            book.readerSettings = MangaReaderSettings(mode: "webtoon", trimBorders: false, layout: "single")
+            let directory = library.directory(for: book)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let format = UIGraphicsImageRendererFormat(); format.scale = 1
+            for index in 0..<book.pageCount {
+                let image = UIGraphicsImageRenderer(size: CGSize(width: 240, height: 360), format: format).image { context in
+                    UIColor(hue: CGFloat(index) / 6, saturation: 0.6, brightness: 0.8, alpha: 1).setFill()
+                    context.fill(CGRect(x: 0, y: 0, width: 240, height: 360))
+                    ("第 \(index + 1) 页" as NSString).draw(at: CGPoint(x: 20, y: 150), withAttributes: [.font: UIFont.systemFont(ofSize: 30), .foregroundColor: UIColor.white])
+                }
+                try image.pngData()!.write(to: directory.appendingPathComponent(String(format: "%06d", index)), options: .atomic)
+            }
+            fixtures.append(book)
+        }
+        if historyCheck {
+            let now = Date()
+            for index in 0..<65 {
+                var book = ComicBook(id: ComicLibrary.hash("history-batch-\(index)"), title: String(format: "历史批次 %03d", index), format: .images, pageCount: 1, importedAt: now)
+                book.lastRead = now.addingTimeInterval(-Double(index) * 60)
+                book.inLibrary = false
+                fixtures.append(book)
+            }
+        }
+        let ids = Set(fixtures.map(\.id))
+        state.books.removeAll { ids.contains($0.id) }
+        state.books += fixtures
+        library.acceptSync(state, captured: captured)
     }
     @MainActor static func checkTachimanga(extensions: ExtensionStore) async {
         guard ProcessInfo.processInfo.arguments.contains("-YokaiTachimangaCheck") else { return }

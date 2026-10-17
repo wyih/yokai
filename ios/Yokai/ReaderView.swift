@@ -18,6 +18,8 @@ struct ReaderView: View {
     @AppStorage("readerBackground", store: YokaiStorage.defaults) private var background = "black"
     @AppStorage("trimBorders", store: YokaiStorage.defaults) private var trimBorders = false
     @AppStorage("autoScrollSpeed", store: YokaiStorage.defaults) private var autoScrollSpeed = 40.0
+    @AppStorage("reader.toolbar.items", store: YokaiStorage.defaults) private var toolbarItems = ReaderToolbarItem.defaults
+    @AppStorage("reader.holdToScroll", store: YokaiStorage.defaults) private var holdToScroll = true
     @AppStorage("reader.doublePage", store: YokaiStorage.defaults) private var defaultDoublePage = false
     @AppStorage("reader.layout", store: YokaiStorage.defaults) private var defaultLayout = "automatic"
     @AppStorage("reader.splitPortrait", store: YokaiStorage.defaults) private var splitPortrait = false
@@ -73,6 +75,8 @@ struct ReaderView: View {
     private var effectiveZoomStart: String { zoomStart == "auto" ? (mode == "rtl" ? "right" : mode == "ltr" ? "left" : "center") : zoomStart }
     private var modeBinding: Binding<String> { Binding(get: { readerSettings.mode ?? "default" }, set: { value in var settings = readerSettings; settings.mode = value == "default" ? nil : value; library.setReaderSettings(settings, bookID: book.id) }) }
     @State private var autoScroll = false
+    @State private var holdScrollSpeed: Double?
+    @State private var configuringToolbar = false
     @State private var page: Int?
     @State private var scrollTarget: Int?
     @State private var scrollJump = 0
@@ -83,6 +87,11 @@ struct ReaderView: View {
     @State private var continuousZoom: CGFloat = 1
     @State private var pinchStart: CGFloat?
     @State private var shareImage: ImageShareItem?
+    @State private var textImage: ImageShareItem?
+    @State private var chapterWebPage: ReaderChapterWebPage?
+    @State private var openingChapterWebPage = false
+    @State private var repairingPages: Set<String> = []
+    @State private var pageReloadVersion = 0
     @State private var imageMessage: String?
     @State private var viewport = CGSize.zero
     @State private var pageImageSizes: [Int: CGSize] = [:]
@@ -110,7 +119,11 @@ struct ReaderView: View {
                             LazyVStack(spacing: 0) {
                                 ForEach(0..<book.pageCount, id: \.self) { index in
                                     ComicPage(directory: directory, format: book.format, document: document, index: index, fit: false, trimBorders: effectiveTrim, scale: scale,
-                                              cacheVersion: currentDownload?.completed ?? 0,
+                                              cacheVersion: currentDownload?.received ?? currentDownload?.completed ?? 0,
+                                              reloadVersion: pageReloadVersion, downloadState: currentDownload?.state,
+                                              downloadError: currentDownload?.error, repairing: repairingPages.contains(pageKey(index)),
+                                              online: book.origin != nil,
+                                              onRetry: { retryPage(index) }, onOpenWeb: canOpenChapterWebPage ? openChapterWebPage : nil,
                                               placeholderAspect: continuousAspect(index),
                                               stackSpread: webtoonSplit, rightFirst: webtoonRightFirst, spreadGap: mode == "vertical" ? 15 : 0,
                                               onDoubleTap: { if webtoonDoubleTap { continuousZoom = continuousZoom > 1 ? 1 : 2.5 } },
@@ -127,7 +140,13 @@ struct ReaderView: View {
                             }
                             .padding(.horizontal, geometry.size.width * CGFloat(sidePadding) / 100)
                             .frame(width: geometry.size.width * continuousZoom)
-                            .background(AutoScrollDriver(enabled: autoScroll, speed: autoScrollSpeed, scrollRequest: scrollRequest, onBoundary: { openAdjacent($0) }))
+                            .overlay(AutoScrollDriver(enabled: readerIsInteractive && !restoringPosition && (autoScroll || holdScrollSpeed != nil),
+                                                         speed: holdScrollSpeed ?? autoScrollSpeed, scrollRequest: scrollRequest,
+                                                         onBoundary: { openAdjacent($0) },
+                                                         holdEnabled: holdToScroll && readerIsInteractive && !controls && continuousZoom == 1 && pinchStart == nil && requestedChapter == nil,
+                                                         onHoldChange: updateHoldScroll,
+                                                         onTap: { tap($0, size: geometry.size) },
+                                                         onDoubleTap: { if webtoonDoubleTap { continuousZoom = continuousZoom > 1 ? 1 : 2.5 } }))
                             .frame(minWidth: geometry.size.width)
                         }
                         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
@@ -175,7 +194,11 @@ struct ReaderView: View {
                         if let frame = readingFrames.first(where: { $0.id == index }) {
                             ForEach(Array(frame.segments.enumerated()), id: \.offset) { _, segment in
                             ComicPage(directory: directory, format: book.format, document: document, index: segment.page, fit: true,
-                                      trimBorders: effectiveTrim, scale: scale, zoomStart: effectiveZoomStart, cacheVersion: currentDownload?.completed ?? 0,
+                                      trimBorders: effectiveTrim, scale: scale, zoomStart: effectiveZoomStart, cacheVersion: currentDownload?.received ?? currentDownload?.completed ?? 0,
+                                      reloadVersion: pageReloadVersion, downloadState: currentDownload?.state,
+                                      downloadError: currentDownload?.error, repairing: repairingPages.contains(pageKey(segment.page)),
+                                      online: book.origin != nil,
+                                      onRetry: { retryPage(segment.page) }, onOpenWeb: canOpenChapterWebPage ? openChapterWebPage : nil,
                                       half: segment.half,
                                       onAction: imageAction,
                                       onTap: { tap(CGPoint(x: $0.x - geometry.frame(in: .global).minX, y: $0.y - geometry.frame(in: .global).minY), size: geometry.size) })
@@ -194,80 +217,36 @@ struct ReaderView: View {
                 VStack { Spacer(); Text("\((page ?? 0) + 1) / \(book.pageCount)").font(.caption).monospacedDigit().padding(6).background(.regularMaterial, in: Capsule()) }
                     .allowsHitTesting(false).padding(.bottom, 8)
             }
-            if controls {
-                VStack(spacing: 0) {
-                    HStack {
-                        Button { dismiss() } label: { Image(systemName: "xmark") }
-                            .accessibilityLabel("关闭阅读器")
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(book.title).font(.headline).lineLimit(1)
-                            if let chapter = book.origin?.chapterTitle { Text(chapter).font(.caption).lineLimit(1) }
-                        }
-                        Spacer()
-                        Button {
-                            library.toggleBookmark(page ?? 0, for: book.id)
-                        } label: {
-                            Image(systemName: bookmarks.contains(where: { $0.page == (page ?? 0) }) ? "bookmark.fill" : "bookmark")
-                        }.accessibilityLabel("切换当前页书签")
-                        Menu {
-                            Picker("本书阅读方式", selection: modeBinding) { Text("跟随默认").tag("default"); ReaderModeChoices() }
-                            Picker("本书页面布局", selection: Binding(get: { readerSettings.layout ?? "default" }, set: { value in var settings = readerSettings; settings.layout = value == "default" ? nil : value; settings.doublePage = nil; library.setReaderSettings(settings, bookID: book.id) })) { Text("跟随默认").tag("default"); ReaderLayoutChoices() }
-                            if doublePage { Toggle("封面单独显示", isOn: $shiftDoublePage) }
-                            Toggle("裁剪边框", isOn: Binding(get: { effectiveTrim }, set: { var settings = readerSettings; settings.trimBorders = $0; library.setReaderSettings(settings, bookID: book.id) }))
-                            Button("本书阅读设置") { configuringReader = true }
-                            Picker("背景", selection: $background) {
-                                Text("黑色").tag("black"); Text("灰色").tag("gray"); Text("纸色").tag("paper"); Text("白色").tag("white")
-                            }
-                            if continuous { Toggle("自动滚动", isOn: $autoScroll) }
-                            Button("点按区域设置") { configuringTapZones = true }
-                            if !bookmarks.isEmpty {
-                                Section("书签") {
-                                    ForEach(bookmarks.sorted { $0.page < $1.page }) { mark in
-                                        Button(mark.title) { jump(to: mark.page) }
-                                    }
-                                }
-                            }
-                        } label: { Image(systemName: "slider.horizontal.3") }
-                            .accessibilityLabel("阅读设置")
-                    }
-                    .padding().background(.ultraThinMaterial)
+            if let holdScrollSpeed {
+                VStack {
                     Spacer()
-                    if let job = currentDownload, job.state == .failed || job.state == .paused {
-                        HStack {
-                            Text(job.error ?? "章节加载已暂停").font(.caption).lineLimit(2)
-                            Button("继续加载") { downloads.resume(job.id) }
-                        }.padding().background(.ultraThinMaterial)
-                    }
-                    HStack {
-                        if book.origin != nil { Button("上一章", systemImage: "backward.end") { openAdjacent(-1) }.labelStyle(.iconOnly).disabled(adjacent(-1) == nil) }
-                        Text("\((page ?? 0) + 1) / \(book.pageCount)").monospacedDigit().font(.caption)
-                            .accessibilityIdentifier("readerPage")
-                        if autoScroll {
-                            Slider(value: $autoScrollSpeed, in: 10...150).accessibilityLabel("自动滚动速度")
-                        } else if book.pageCount > 1 {
-                            Slider(value: Binding(get: { Double(page ?? 0) }, set: { jump(to: Int($0)) }),
-                                   in: 0...Double(book.pageCount - 1), step: 1)
-                                .accessibilityLabel("跳转页码")
-                        }
-                        if book.origin != nil { Button("下一章", systemImage: "forward.end") { openAdjacent(1) }.labelStyle(.iconOnly).disabled(adjacent(1) == nil) }
-                    }
-                    .padding().background(.ultraThinMaterial)
-                }
-                .foregroundStyle(background == "white" || background == "paper" ? Color.black : Color.white)
+                    Text("滚动速度 \(Int(holdScrollSpeed)) · 上滑加速，下滑减速")
+                        .font(.caption).monospacedDigit().padding(12)
+                        .modifier(ReaderControlSurface())
+                        .accessibilityIdentifier("readerHoldScrollStatus")
+                }.padding(.bottom, 40).allowsHitTesting(false)
             }
+            if controls { readerControls }
         }.coordinateSpace(name: "reader")
         .onAppear { viewport = geometry.size }
         .onChange(of: geometry.size) { _, size in viewport = size }
         }
-        .sheet(isPresented: $configuringTapZones) { NavigationStack { TapZoneSettingsView() } }
+        .sheet(isPresented: $configuringTapZones) { NavigationStack { TapZoneSettingsView(initialMode: mode) } }
+        .sheet(isPresented: $configuringToolbar) {
+            NavigationStack {
+                ReaderToolbarSettingsView().toolbar { Button("完成") { configuringToolbar = false } }
+            }
+        }
         .sheet(item: $shareImage) { ImageShareSheet(image: $0.image) }
+        .sheet(item: $textImage) { ReaderImageTextView(image: $0.image) }
+        .sheet(item: $chapterWebPage) { SourceLoginView(source: $0.source, address: $0.address) }
         .preferredColorScheme(background == "white" || background == "paper" ? .light : .dark)
         .statusBarHidden(fullscreen && !controls)
         .sheet(isPresented: $configuringReader) { NavigationStack { MangaReaderSettingsView(bookID: book.id) } }
         .alert("章节加载失败", isPresented: Binding(get: { chapterError != nil }, set: { if !$0 { chapterError = nil } })) { Button("好", role: .cancel) {} } message: { Text(chapterError ?? "") }
         .alert("图片操作", isPresented: Binding(get: { imageMessage != nil }, set: { if !$0 { imageMessage = nil } })) { Button("好", role: .cancel) {} } message: { Text(imageMessage ?? "") }
         #if targetEnvironment(macCatalyst)
-        .focusedSceneValue(\.desktopReaderAction, (configuringReader || configuringTapZones || shareImage != nil) ? nil : desktopAction)
+        .focusedSceneValue(\.desktopReaderAction, readerIsInteractive ? desktopAction : nil)
         #endif
         .onAppear {
             readerVisible = true
@@ -279,7 +258,7 @@ struct ReaderView: View {
             applyBrightness(); ReaderOrientation.apply(orientation)
         }
         .onDisappear {
-            readerVisible = false
+            readerVisible = false; holdScrollSpeed = nil; autoScroll = false
             Task { do { try await library.flushPendingSaves() } catch { library.errorMessage = error.localizedDescription } }
             downloads.leftChapter(bookID: book.id, chapterURL: book.origin?.chapterURL, order: orderedChapters.map(\.url))
             #if targetEnvironment(macCatalyst)
@@ -301,6 +280,7 @@ struct ReaderView: View {
         .onChange(of: brightness) { _, _ in applyBrightness() }
         .onChange(of: customBrightness) { _, _ in applyBrightness() }
         .onChange(of: scenePhase) { _, phase in
+            if phase != .active { holdScrollSpeed = nil; autoScroll = false }
             if phase == .background { brightnessControl.restore() }
             else if phase == .active { applyBrightness() }
         }
@@ -310,7 +290,7 @@ struct ReaderView: View {
             else if job.state == .failed { requestedChapter = nil; chapterError = job.error }
         }
         .task(id: book.origin?.chapterURL ?? book.id) {
-            restoringPosition = true; autoScroll = false; prefetchedChapter = nil; continuousZoom = 1
+            restoringPosition = true; autoScroll = false; holdScrollSpeed = nil; prefetchedChapter = nil; continuousZoom = 1
             if book.format == .pdf { document = PDFDocument(url: directory.appendingPathComponent("comic.pdf")) }
             jump(to: book.lastPage)
         }
@@ -324,6 +304,7 @@ struct ReaderView: View {
         .onChange(of: displayFrame) { _, _ in recordVisibleFrame() }
         .onChange(of: imageWidths) { _, _ in recordVisibleFrame() }
         .onChange(of: mode) { _, newMode in
+            holdScrollSpeed = nil; autoScroll = false
             if newMode == "vertical" || newMode == "webtoon" { restoringPosition = true; scrollTarget = page; scrollJump += 1 }
         }
         .onChange(of: page) { _, newPage in
@@ -331,6 +312,146 @@ struct ReaderView: View {
                 if continuous { library.setPage(newPage, for: book.id) }
                 if aheadChapters > 0 && newPage >= book.pageCount - 6 { preloadChapters() }
             }
+        }
+    }
+
+    private var readerIsInteractive: Bool {
+        readerVisible && scenePhase == .active && !configuringReader && !configuringTapZones && !configuringToolbar && shareImage == nil && textImage == nil && chapterWebPage == nil && !openingChapterWebPage && imageMessage == nil && chapterError == nil
+    }
+    private var layoutBinding: Binding<String> {
+        Binding(get: { readerSettings.layout ?? "default" }, set: { value in
+            var settings = readerSettings; settings.layout = value == "default" ? nil : value
+            settings.doublePage = nil; library.setReaderSettings(settings, bookID: book.id)
+        })
+    }
+    private var trimBinding: Binding<Bool> {
+        Binding(get: { effectiveTrim }, set: { value in
+            var settings = readerSettings; settings.trimBorders = value; library.setReaderSettings(settings, bookID: book.id)
+        })
+    }
+    private var visibleToolbarItems: [ReaderToolbarItem] {
+        ReaderToolbarItem.items(from: toolbarItems).filter { $0 != .autoScroll || continuous }
+    }
+    private var readerControls: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Button { dismiss() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
+                    .accessibilityLabel("关闭阅读器")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(book.title).font(.headline).lineLimit(1)
+                    if let chapter = book.origin?.chapterTitle { Text(chapter).font(.caption).lineLimit(1) }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                Menu { readerMenu } label: { Image(systemName: "slider.horizontal.3").frame(width: 44, height: 44) }
+                    .accessibilityLabel("阅读设置")
+                    .accessibilityIdentifier("readerSettingsMenu")
+            }
+            .padding(8).frame(maxWidth: 760).modifier(ReaderControlSurface())
+            Spacer(minLength: 0)
+            if let job = currentDownload, job.state == .failed || job.state == .paused {
+                HStack {
+                    Text(job.error ?? "章节加载已暂停").font(.caption).lineLimit(2)
+                    Button("继续加载") { downloads.resume(job.id) }
+                }.padding(12).frame(maxWidth: 760).modifier(ReaderControlSurface())
+            }
+            VStack(spacing: 0) {
+                if !visibleToolbarItems.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(visibleToolbarItems) { item in
+                                toolbarControl(item)
+                                    .accessibilityIdentifier("readerToolbar.\(item.rawValue)")
+                                    .help(item.title)
+                            }
+                        }.frame(minWidth: max(0, min(viewport.width - 48, 736)))
+                    }.frame(height: 48)
+                }
+                HStack(spacing: 8) {
+                    if book.origin != nil {
+                        Button { openAdjacent(-1) } label: { Image(systemName: "backward.end").frame(width: 44, height: 44) }
+                            .accessibilityLabel("上一章").disabled(adjacent(-1) == nil)
+                    }
+                    Text("\((page ?? 0) + 1) / \(book.pageCount)").monospacedDigit().font(.caption)
+                        .fixedSize().accessibilityIdentifier("readerPage")
+                    if autoScroll {
+                        Slider(value: $autoScrollSpeed, in: 10...150).accessibilityLabel("自动滚动速度")
+                    } else if book.pageCount > 1 {
+                        Slider(value: Binding(get: { Double(page ?? 0) }, set: { jump(to: Int($0)) }),
+                               in: 0...Double(book.pageCount - 1), step: 1)
+                            .accessibilityLabel("跳转页码")
+                    }
+                    if book.origin != nil {
+                        Button { openAdjacent(1) } label: { Image(systemName: "forward.end").frame(width: 44, height: 44) }
+                            .accessibilityLabel("下一章").disabled(adjacent(1) == nil)
+                    }
+                }.frame(minHeight: 44)
+            }.padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: 760).modifier(ReaderControlSurface())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12).padding(.vertical, 8).frame(maxWidth: .infinity)
+        .foregroundStyle(background == "white" || background == "paper" ? Color.black : Color.white)
+    }
+    @ViewBuilder private var backgroundChoices: some View {
+        Text("黑色").tag("black"); Text("灰色").tag("gray"); Text("纸色").tag("paper"); Text("白色").tag("white")
+    }
+    @ViewBuilder private var readerMenu: some View {
+        Picker("本书阅读方式", selection: modeBinding) { Text("跟随默认").tag("default"); ReaderModeChoices() }
+        Picker("本书页面布局", selection: layoutBinding) { Text("跟随默认").tag("default"); ReaderLayoutChoices() }
+        if doublePage { Toggle("封面单独显示", isOn: $shiftDoublePage) }
+        Toggle("裁剪边框", isOn: trimBinding)
+        Button("本书阅读设置") { configuringReader = true }
+        Picker("背景", selection: $background) { backgroundChoices }
+        if continuous { Toggle("自动滚动", isOn: $autoScroll) }
+        Button("点按区域设置") { configuringTapZones = true }
+        Button("自定义工具栏") { configuringToolbar = true }
+            .accessibilityIdentifier("readerToolbarSettings")
+        Button("切换当前页书签") { library.toggleBookmark(page ?? 0, for: book.id) }
+        if !bookmarks.isEmpty {
+            Section("书签") {
+                ForEach(bookmarks.sorted { $0.page < $1.page }) { mark in
+                    Button(mark.title) { jump(to: mark.page) }
+                }
+            }
+        }
+    }
+    @ViewBuilder private func toolbarControl(_ item: ReaderToolbarItem) -> some View {
+        switch item {
+        case .bookmark:
+            Button { library.toggleBookmark(page ?? 0, for: book.id) } label: {
+                Image(systemName: bookmarks.contains(where: { $0.page == (page ?? 0) }) ? "bookmark.fill" : item.symbol)
+                    .frame(width: 44, height: 44)
+            }.accessibilityLabel("切换当前页书签")
+                .accessibilityValue(bookmarks.contains(where: { $0.page == (page ?? 0) }) ? "已添加" : "未添加")
+        case .autoScroll:
+            Button { autoScroll.toggle() } label: { Image(systemName: autoScroll ? "pause.fill" : "play.fill").frame(width: 44, height: 44) }
+                .accessibilityLabel(autoScroll ? "暂停自动滚动" : "开始自动滚动")
+        case .trimBorders:
+            Button { trimBinding.wrappedValue.toggle() } label: {
+                Image(systemName: item.symbol).frame(width: 44, height: 44)
+                    .background(effectiveTrim ? Color.accentColor.opacity(0.25) : .clear, in: RoundedRectangle(cornerRadius: 10))
+            }.accessibilityLabel(item.title).accessibilityValue(effectiveTrim ? "开启" : "关闭")
+        case .readingMode:
+            Menu { Picker("本书阅读方式", selection: modeBinding) { Text("跟随默认").tag("default"); ReaderModeChoices() } }
+                label: { Image(systemName: item.symbol).frame(width: 44, height: 44) }
+                .accessibilityLabel(item.title)
+        case .pageLayout:
+            Menu { Picker("本书页面布局", selection: layoutBinding) { Text("跟随默认").tag("default"); ReaderLayoutChoices() } }
+                label: { Image(systemName: item.symbol).frame(width: 44, height: 44) }
+                .accessibilityLabel(item.title)
+        case .background:
+            Menu { Picker("阅读背景", selection: $background) { backgroundChoices } }
+                label: { Image(systemName: item.symbol).frame(width: 44, height: 44) }
+                .accessibilityLabel(item.title)
+        case .tapZones:
+            Button { configuringTapZones = true } label: { Image(systemName: item.symbol).frame(width: 44, height: 44) }
+                .accessibilityLabel(item.title)
+        }
+    }
+    private func updateHoldScroll(_ speed: Double?) {
+        if let speed {
+            autoScroll = false; holdScrollSpeed = speed
+        } else {
+            if let holdScrollSpeed { autoScrollSpeed = holdScrollSpeed }
+            holdScrollSpeed = nil
         }
     }
 
@@ -342,15 +463,67 @@ struct ReaderView: View {
     }
     private func imageAction(_ action: String, image: UIImage) {
         switch action {
+        case "text": autoScroll = false; holdScrollSpeed = nil; textImage = ImageShareItem(image: image)
         case "share": shareImage = ImageShareItem(image: image)
         case "cover": library.changeCover(book.id, image: image); imageMessage = library.errorMessage ?? "已设为封面。"
         case "save": Task { do { try await ReaderImageActions.saveToPhotos(image); imageMessage = "已保存到照片。" } catch { imageMessage = error.localizedDescription } }
         default: break
         }
     }
+    private var currentSource: MangaSource? { extensions.sources.first { $0.id == book.origin?.sourceID } }
+    private var currentChapter: SourceChapter? {
+        guard let origin = book.origin, let url = origin.chapterURL else { return nil }
+        return library.cachedDetails(for: book)?.chapters.first { $0.url == url }
+            ?? SourceChapter(url: url, name: origin.chapterTitle ?? "章节", number: -1, uploaded: 0, memo: origin.chapterMemo)
+    }
+    private var canOpenChapterWebPage: Bool {
+        currentSource != nil && currentChapter.map { ReaderChapterWebPage.isWebReference($0.url) } == true
+    }
+    private func openChapterWebPage() {
+        guard !openingChapterWebPage, let source = currentSource, let chapter = currentChapter else { return }
+        autoScroll = false; holdScrollSpeed = nil; openingChapterWebPage = true
+        Task {
+            defer { openingChapterWebPage = false }
+            do {
+                let address: URL?
+                if let absolute = ReaderChapterWebPage.address(chapter.url, base: nil) { address = absolute }
+                else {
+                    let info = try await SourceEngine.call("webViewInfo", ["source": source.id], as: SourceWebInfo.self)
+                    address = ReaderChapterWebPage.address(chapter.url, base: info.url)
+                }
+                guard let address else { throw SourceError.message("此图源没有提供有效的章节网页地址。") }
+                guard readerVisible, currentChapter?.url == chapter.url else { return }
+                chapterWebPage = ReaderChapterWebPage(source: source, address: address)
+            } catch { imageMessage = error.localizedDescription }
+        }
+    }
+    private func pageKey(_ index: Int) -> String { directory.path + "/" + String(index) }
+    private func retryPage(_ index: Int) {
+        let key = pageKey(index)
+        guard !repairingPages.contains(key) else { return }
+        if book.origin == nil {
+            if book.format == .pdf { document = PDFDocument(url: directory.appendingPathComponent("comic.pdf")) }
+            pageReloadVersion += 1
+            return
+        }
+        guard let source = currentSource, let chapter = currentChapter else { imageMessage = "请先安装此漫画的图源插件。"; return }
+        if let job = currentDownload {
+            if job.state == .queued || job.state == .downloading { return }
+            if job.state == .paused || job.state == .failed { downloads.resume(job.id); return }
+        }
+        let folder = directory
+        repairingPages.insert(key)
+        Task {
+            defer { repairingPages.remove(key) }
+            do {
+                try await ReaderPageRecovery.reload(sourceID: source.id, chapter: chapter, index: index, directory: folder)
+                if directory == folder { pageReloadVersion += 1 }
+            } catch { if directory == folder { imageMessage = error.localizedDescription } }
+        }
+    }
     #if targetEnvironment(macCatalyst)
     private func desktopAction(_ action: String) {
-        guard !configuringReader, !configuringTapZones, shareImage == nil else { return }
+        guard readerIsInteractive else { return }
         switch action {
         case "close": dismiss()
         case "previousChapter": openAdjacent(-1)
@@ -363,9 +536,7 @@ struct ReaderView: View {
     #endif
 
     @State private var configuringTapZones = false
-    @AppStorage("tapZones.layout", store: YokaiStorage.defaults) private var tapLayout = "columns"
-    @AppStorage("tapZones.actions", store: YokaiStorage.defaults) private var tapActions = TapZones.defaults
-    @AppStorage("tapZones.followDirection", store: YokaiStorage.defaults) private var tapFollowDirection = true
+    private var tapPreferences = TapZonePreferences()
     @AppStorage("tapZones.pager.preset", store: YokaiStorage.defaults) private var pagerPreset = "default"
     @AppStorage("tapZones.webtoon.preset", store: YokaiStorage.defaults) private var webtoonPreset = "default"
     @AppStorage("tapZones.pager.invert", store: YokaiStorage.defaults) private var pagerInvert = "none"
@@ -419,8 +590,10 @@ struct ReaderView: View {
         let continuous = self.continuous
         let preset = continuous ? webtoonPreset : pagerPreset
         let action = TapZones.action(at: location, size: size, preset: preset, continuous: continuous,
-                                     invert: continuous ? webtoonInvert : pagerInvert, layout: tapLayout, actions: tapActions,
-                                     reversed: !continuous && mode == "rtl" && (preset != "custom" || tapFollowDirection))
+                                     invert: continuous ? webtoonInvert : pagerInvert,
+                                     layout: tapPreferences.layout(continuous: continuous).wrappedValue,
+                                     actions: tapPreferences.actions(continuous: continuous).wrappedValue,
+                                     reversed: !continuous && mode == "rtl" && (preset != "custom" || tapPreferences.followDirection(continuous: continuous).wrappedValue))
         #if DEBUG && targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("-YokaiReaderTrace") {
             FileHandle.standardError.write(Data("Reader tap \(location) \(size) action \(action) page \(page ?? -1) anchor \(scrollTarget ?? -1) request \(scrollRequest)\n".utf8))
@@ -455,7 +628,7 @@ struct ReaderView: View {
             let duplicate = skipDuplicate && original.number >= 0 && chapter.number == original.number
             let downloaded = FileManager.default.fileExists(atPath: library.chapterDirectory(bookID: book.id, chapterURL: chapter.url).appendingPathComponent("chapter.json").path)
             func accepts(_ filter: String, _ value: Bool) -> Bool { filter == "all" || (filter == "yes" ? value : !value) }
-            let filtered = skipFiltered && (!accepts(filters.read, state?.completed == true) || !accepts(filters.bookmarked, state?.bookmarked == true) || !accepts(filters.downloaded, downloaded))
+            let filtered = skipFiltered && (!accepts(filters.read, state?.completed == true) || !accepts(filters.bookmarked, state?.bookmarked == true) || !accepts(filters.downloaded, downloaded) || !filters.acceptsScanlator(chapter))
             if !duplicate && !filtered && !(skipRead && state?.completed == true) { return chapter }
             index += direction
         }
@@ -505,6 +678,13 @@ private struct ComicPage: View {
     let scale: String
     var zoomStart = "center"
     let cacheVersion: Int
+    var reloadVersion = 0
+    var downloadState: ChapterDownload.State?
+    var downloadError: String?
+    var repairing = false
+    var online = false
+    var onRetry: () -> Void = {}
+    var onOpenWeb: (() -> Void)?
     var placeholderAspect: CGFloat?
     var half: Int?
     var stackSpread = false
@@ -517,50 +697,85 @@ private struct ComicPage: View {
     @State private var image: UIImage?
     @State private var originalImage: UIImage?
     @State private var aspect: CGFloat = 1
+    @State private var failure: ReaderPageFailure?
+    private var downloading: Bool { downloadState == .queued || downloadState == .downloading }
 
     var body: some View {
         Group {
             if let image {
-                if fit {
-                    ZoomableImage(image: image, scale: scale, zoomStart: zoomStart, onTap: onTap)
-                } else {
-                    Image(uiImage: image).resizable().scaledToFit()
-                        .frame(maxWidth: .infinity)
-                        .gesture(SpatialTapGesture(count: 2, coordinateSpace: .named("reader"))
-                            .exclusively(before: SpatialTapGesture(count: 1, coordinateSpace: .named("reader")))
-                            .onEnded { value in switch value { case .first: onDoubleTap(); case .second(let event): onTap(event.location) } })
+                Group {
+                    if fit {
+                        ZoomableImage(image: image, scale: scale, zoomStart: zoomStart, onTap: onTap)
+                    } else {
+                        Image(uiImage: image).resizable().scaledToFit()
+                            .frame(maxWidth: .infinity)
+                            .gesture(SpatialTapGesture(count: 2, coordinateSpace: .named("reader"))
+                                .exclusively(before: SpatialTapGesture(count: 1, coordinateSpace: .named("reader")))
+                                .onEnded { value in switch value { case .first: onDoubleTap(); case .second(let event): onTap(event.location) } })
+                    }
                 }
-            } else {
+                .contextMenu {
+                    if longTap, let originalImage {
+                        Button("保存图片", systemImage: "square.and.arrow.down") { onAction("save", originalImage) }
+                        Button("分享图片", systemImage: "square.and.arrow.up") { onAction("share", originalImage) }
+                        Button("设为封面", systemImage: "photo") { onAction("cover", originalImage) }
+                        Button("选择图片文字", systemImage: "text.viewfinder") { onAction("text", originalImage) }
+                            .accessibilityIdentifier("readerImageText")
+                    }
+                    if longTap, let onOpenWeb {
+                        Button("打开章节网页", systemImage: "globe", action: onOpenWeb)
+                            .accessibilityIdentifier("readerChapterWeb")
+                    }
+                }
+                .accessibilityLabel("第 \(index + 1) 页")
+            } else if failure == nil || repairing || (failure == .missing && downloading) {
                 Rectangle().fill(Color.clear).aspectRatio(placeholderAspect ?? aspect, contentMode: .fit).overlay(ProgressView().tint(.gray))
+                    .accessibilityIdentifier("readerPageLoading.\(index)")
+            } else {
+                VStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle").font(.title2)
+                    Text(failure == .unreadable ? "图片无法解码" : (online ? "图片尚未下载或已丢失" : "本地图片缺失")).font(.headline)
+                        .accessibilityIdentifier("readerPageError.\(index)")
+                    Text(failure == .unreadable ? "文件已存在，但无法读取图片内容。" :
+                         (downloadError ?? (online ? "重新加载此页，或打开章节网页查看。" : "本地文件缺失，请重新导入漫画。")))
+                        .font(.footnote).multilineTextAlignment(.center)
+                    Button(online ? "重新加载此页" : "重新读取") { onRetry() }
+                        .disabled(downloading).accessibilityIdentifier("readerPageRetry.\(index)")
+                    if let onOpenWeb {
+                        Button("打开章节网页", systemImage: "globe", action: onOpenWeb)
+                            .accessibilityIdentifier("readerPageOpenWeb.\(index)")
+                    }
+                }.padding(24).frame(maxWidth: .infinity, minHeight: 220)
+                    .foregroundStyle(.primary).background(.regularMaterial)
             }
         }
-        .contextMenu {
-            if longTap, let image = originalImage {
-                Button("保存图片", systemImage: "square.and.arrow.down") { onAction("save", image) }
-                Button("分享图片", systemImage: "square.and.arrow.up") { onAction("share", image) }
-                Button("设为封面", systemImage: "photo") { onAction("cover", image) }
-            }
-        }
-        .accessibilityLabel("第 \(index + 1) 页")
-        .task(id: "\(directory.path)-\(index)-\(trimBorders)-\(cacheVersion)-\(half ?? -1)-\(stackSpread)-\(rightFirst)-\(spreadGap)") {
+        .task(id: "\(directory.path)-\(index)-\(trimBorders)-\(cacheVersion)-\(reloadVersion)-\(downloadState?.rawValue ?? "")-\(document?.pageCount ?? 0)-\(half ?? -1)-\(stackSpread)-\(rightFirst)-\(spreadGap)") {
             let identity = "\(directory.path)/\(index)-\(half ?? -1)-\(stackSpread)-\(rightFirst)-\(spreadGap)"
             guard image == nil || appliedTrim != trimBorders || loadedIdentity != identity else { return }
-            image = nil; originalImage = nil; loadedIdentity = identity
+            image = nil; originalImage = nil; failure = nil
+            var loaded: UIImage?
+            var loadFailure = ReaderPageFailure.unreadable
             if format == .pdf, let pdfPage = document?.page(at: index) {
                 let bounds = pdfPage.bounds(for: .mediaBox)
                 let width = min(UIScreen.main.bounds.width * UIScreen.main.scale, 1800)
-                image = pdfPage.thumbnail(of: CGSize(width: width, height: width * bounds.height / max(bounds.width, 1)), for: .mediaBox)
+                loaded = pdfPage.thumbnail(of: CGSize(width: width, height: width * bounds.height / max(bounds.width, 1)), for: .mediaBox)
             } else if format == .images {
-                image = await Task.detached(priority: .userInitiated) {
-                    ChapterArchive.image(directory: directory, index: index)
+                let result = await Task.detached(priority: .userInitiated) {
+                    let image = ChapterArchive.image(directory: directory, index: index)
+                    return (image, image == nil ? ReaderPageFailure.inspect(directory: directory, index: index) : nil)
                 }.value
+                loaded = result.0; loadFailure = result.1 ?? .unreadable
+            } else if !FileManager.default.fileExists(atPath: directory.appendingPathComponent("comic.pdf").path) {
+                loadFailure = .missing
             }
-            originalImage = image
-            if let half { image = image?.spreadHalf(half) }
-            if stackSpread, let loaded = image { image = await Task.detached { loaded.stackingSpread(rightFirst: rightFirst, gap: spreadGap) }.value }
-            if trimBorders, let loaded = image { image = await Task.detached { loaded.trimmingBorders() }.value }
-            if let image { aspect = image.size.width / max(image.size.height, 1) }
-            appliedTrim = trimBorders
+            let original = loaded
+            if let half { loaded = loaded?.spreadHalf(half) }
+            if stackSpread, let current = loaded { loaded = await Task.detached { current.stackingSpread(rightFirst: rightFirst, gap: spreadGap) }.value }
+            if trimBorders, let current = loaded { loaded = await Task.detached { current.trimmingBorders() }.value }
+            guard !Task.isCancelled else { return }
+            image = loaded; originalImage = original; failure = loaded == nil ? loadFailure : nil
+            if let loaded { aspect = loaded.size.width / max(loaded.size.height, 1) }
+            appliedTrim = trimBorders; loadedIdentity = identity
         }
         .onDisappear { image = nil; originalImage = nil }
     }

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 struct LibraryDisplayOptions: Codable, Equatable {
@@ -15,6 +16,23 @@ struct LibraryDisplayOptions: Codable, Equatable {
     var badges = true
     var showSource = false
     var showCount = true
+    // Optional so settings saved before source filters still decode unchanged.
+    var sourceFilters: [String: String]?
+    var hasSourceFilters: Bool { sourceFilters?.values.contains { $0 == "yes" || $0 == "no" } == true }
+    func sourceFilter(_ sourceID: String?) -> String {
+        sourceFilters?[sourceID.map { "source:" + $0 } ?? "local"] ?? "all"
+    }
+    mutating func setSourceFilter(_ filter: String, sourceID: String?) {
+        let key = sourceID.map { "source:" + $0 } ?? "local"
+        var filters = sourceFilters ?? [:]
+        if filter == "all" { filters.removeValue(forKey: key) }
+        else { filters[key] = filter }
+        sourceFilters = filters.isEmpty ? nil : filters
+    }
+    func acceptsSource(_ sourceID: String?) -> Bool {
+        let filter = sourceFilter(sourceID)
+        return filter != "no" && (sourceFilters?.values.contains("yes") != true || filter == "yes")
+    }
     static func load() -> Self {
         YokaiStorage.defaults.data(forKey: "library.display").flatMap { try? JSONDecoder().decode(Self.self, from: $0) } ?? Self()
     }
@@ -35,6 +53,8 @@ struct LibraryView: View {
     @State private var selecting = false
     @State private var chosen = Set<String>()
     @State private var categorySelection = false
+    @State private var migrationBooks: [ComicBook] = []
+    @State private var showingBatchMigration = false
     @State private var removing = false
     @State private var renaming: ComicBook?
     @State private var title = ""
@@ -50,6 +70,7 @@ struct LibraryView: View {
             let m = metrics[book.id] ?? ShelfBookMetrics()
             return (query.isEmpty || text.localizedCaseInsensitiveContains(query))
                 && (category == "all" || (category == "default" ? (book.categories ?? []).isEmpty : (book.categories ?? []).contains(category)))
+                && options.acceptsSource(book.origin?.sourceID)
                 && accepts(options.downloaded, m.downloaded > 0)
                 && accepts(options.unread, book.origin == nil ? book.lastPage < book.pageCount - 1 : m.unread > 0)
                 && accepts(options.started, book.lastRead != nil || (book.chapters ?? []).contains { $0.completed || $0.lastPage > 0 })
@@ -77,7 +98,7 @@ struct LibraryView: View {
         guard options.grouping != "category" && options.grouping != "none" else { return [("", books)] }
         let grouped = Dictionary(grouping: books) { book in
             switch options.grouping {
-            case "source": return extensions.sources.first { $0.id == book.origin?.sourceID }?.name ?? (book.origin == nil ? "本地" : "未安装的图源")
+            case "source": return sourceName(book)
             case "status": return mangaStatus(book.mangaInfo?.status)
             case "author": return book.mangaInfo?.author ?? "未知作者"
             default: return ""
@@ -96,6 +117,13 @@ struct LibraryView: View {
                             ForEach(library.categoryNames, id: \.self) { categoryButton($0, id: $0) }
                         }.padding(.horizontal).padding(.vertical, 8)
                     }
+                }
+                if options.hasSourceFilters {
+                    HStack {
+                        Button("图源筛选已启用", systemImage: "line.3.horizontal.decrease") { showingOptions = true }
+                        Spacer()
+                        Button("清除图源筛选") { options.sourceFilters = nil }
+                    }.font(.caption).padding(.horizontal).padding(.vertical, 8)
                 }
                 if shelf.isEmpty {
                     ContentUnavailableView("书架为空", systemImage: "books.vertical", description: Text("在浏览中加入漫画，或导入本地漫画。"))
@@ -135,6 +163,11 @@ struct LibraryView: View {
                         Menu("批量操作", systemImage: "ellipsis") {
                             Button("全选") { chosen = Set(books.map(\.id)) }
                             Button("反选") { chosen = Set(books.map(\.id)).subtracting(chosen) }
+                            Button("批量换源", systemImage: "arrow.triangle.swap") {
+                                migrationBooks = library.books.filter { chosen.contains($0.id) }
+                                showingBatchMigration = true
+                            }.disabled(!library.books.contains { chosen.contains($0.id) && $0.origin != nil })
+                                .accessibilityIdentifier("libraryBatchMigration")
                             Button("设置分类") { categorySelection = true }.disabled(chosen.isEmpty)
                             Button("标记已读") { Task { await bulkRead(true) } }.disabled(chosen.isEmpty)
                             Button("标记未读") { Task { await bulkRead(false) } }.disabled(chosen.isEmpty)
@@ -157,9 +190,12 @@ struct LibraryView: View {
             .onChange(of: library.changeCount) { _, _ in rebuildMetrics() }
             .onReceive(library.$downloadedChapters) { rebuildMetrics(downloaded: $0) }
             .onChange(of: options) { _, value in value.save() }
-            .sheet(isPresented: $showingMore) { MoreView() }
+            .sheet(isPresented: $showingMore, onDismiss: { options = .load() }) { MoreView() }
             .sheet(isPresented: $showingOptions) { NavigationStack { LibraryDisplaySettingsView(options: $options) } }
             .sheet(isPresented: $categorySelection) { CategoryAssignmentView(bookIDs: chosen) }
+            .sheet(isPresented: $showingBatchMigration, onDismiss: {
+                chosen.formIntersection(Set(shelf.map(\.id)))
+            }) { BatchMigrationView(books: migrationBooks) }
             .navigationDestination(isPresented: Binding(get: { selectedBook != nil }, set: { if !$0 { selectedBook = nil } })) {
                 if let book = selectedBook { BookDetailsView(book: book) }
             }
@@ -198,7 +234,6 @@ struct LibraryView: View {
                 if options.showSource { Text(sourceName(book)).font(.caption2).lineLimit(1).foregroundStyle(.secondary) }
             }
         }.buttonStyle(.plain).contextMenu { context(book) }
-        .onLongPressGesture { selecting = true; chosen.insert(book.id) }
     }
     private func row(_ book: ComicBook) -> some View {
         Button { select(book) } label: {
@@ -227,6 +262,7 @@ struct LibraryView: View {
         BookCover(book: book)
     }
     @ViewBuilder private func context(_ book: ComicBook) -> some View {
+        Button("复制标题", systemImage: "doc.on.doc") { UIPasteboard.general.string = book.title }
         Button("选择") { selecting = true; chosen.insert(book.id) }
         Button("分类") { chosen = [book.id]; categorySelection = true }
         Button("重命名") { title = book.title; renaming = book }
@@ -234,7 +270,10 @@ struct LibraryView: View {
         Button("刷新封面") { if let source = extensions.sources.first(where: { $0.id == book.origin?.sourceID }) { Task { await library.cacheSourceCover(book, source: source, refresh: true) } } }
         Button("从书架移除", role: .destructive) { chosen = [book.id]; removing = true }
     }
-    private func sourceName(_ book: ComicBook) -> String { extensions.sources.first { $0.id == book.origin?.sourceID }?.name ?? "本地" }
+    private func sourceName(_ book: ComicBook) -> String {
+        guard let sourceID = book.origin?.sourceID else { return "本地" }
+        return extensions.sources.first { $0.id == sourceID }?.name ?? "未安装的图源（\(sourceID)）"
+    }
     private func accepts(_ filter: String, _ value: Bool) -> Bool { filter == "all" || (filter == "yes" ? value : !value) }
     private func compare<T: Comparable>(_ a: T, _ b: T) -> ComparisonResult { a == b ? .orderedSame : a < b ? .orderedAscending : .orderedDescending }
     private func rebuildMetrics(downloaded: [String: Set<String>]? = nil) {
@@ -282,14 +321,37 @@ func mangaStatus(_ status: Int?) -> String {
 
 struct LibraryDisplaySettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var library: ComicLibrary
+    @EnvironmentObject private var extensions: ExtensionStore
     @State private var saved = LibraryDisplayOptions.load()
     var options: Binding<LibraryDisplayOptions>?
     private var value: Binding<LibraryDisplayOptions> { options ?? $saved }
+    private var sourceIDs: [String] {
+        var ids = Set(extensions.sources.map(\.id))
+        ids.formUnion(library.books.filter { $0.inLibrary != false }.compactMap { $0.origin?.sourceID })
+        ids.formUnion((value.wrappedValue.sourceFilters ?? [:]).keys.compactMap { $0.hasPrefix("source:") ? String($0.dropFirst(7)) : nil })
+        return ids.sorted {
+            let a = sourceLabel($0), b = sourceLabel($1)
+            return a == b ? $0 < $1 : a.localizedStandardCompare(b) == .orderedAscending
+        }
+    }
     var body: some View {
         Form {
             Section("筛选") {
                 filter("已下载", value.downloaded); filter("未读", value.unread); filter("已开始阅读", value.started)
                 filter("已完结", value.completed); filter("有书签", value.bookmarked)
+            }
+            Section {
+                sourceFilterRow("本地漫画", sourceID: nil)
+                ForEach(sourceIDs, id: \.self) { id in
+                    sourceFilterRow(sourceLabel(id), sourceID: id)
+                }
+                Button("清除图源筛选") { value.wrappedValue.sourceFilters = nil }
+                    .disabled(!value.wrappedValue.hasSourceFilters)
+            } header: {
+                Text("图源筛选")
+            } footer: {
+                Text("可包含或排除多个图源。选择包含后，仅显示这些图源的漫画；未选择包含时显示所有未被排除的图源。图源筛选与分类、未读等条件同时生效。")
             }
             Section("排序") {
                 Picker("排序方式", selection: value.sort) {
@@ -310,6 +372,21 @@ struct LibraryDisplaySettingsView: View {
         }.navigationTitle("书架显示与筛选").navigationBarTitleDisplayMode(.inline)
         .onChange(of: saved) { _, v in v.save() }
         .toolbar { if options != nil { Button("完成") { dismiss() } } }
+    }
+    private func sourceLabel(_ sourceID: String) -> String {
+        guard let source = extensions.sources.first(where: { $0.id == sourceID }) else { return "未安装的图源（\(sourceID)）" }
+        let name = source.name ?? sourceID
+        return source.lang.map { "\(name)（\($0)）" } ?? name
+    }
+    private func sourceFilterRow(_ name: String, sourceID: String?) -> some View {
+        Picker(name, selection: Binding(
+            get: { value.wrappedValue.sourceFilter(sourceID) },
+            set: { value.wrappedValue.setSourceFilter($0, sourceID: sourceID) }
+        )) {
+            Text("不限").tag("all")
+            Text("包含").tag("yes")
+            Text("排除").tag("no")
+        }
     }
     private func filter(_ name: String, _ binding: Binding<String>) -> some View { Picker(name, selection: binding) { Text("全部").tag("all"); Text("仅显示").tag("yes"); Text("排除").tag("no") } }
 }

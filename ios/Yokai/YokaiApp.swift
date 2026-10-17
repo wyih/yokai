@@ -171,6 +171,8 @@ struct MoreView: View {
                 #endif
                 Section {
                     NavigationLink { DownloadsView() } label: { Label("下载队列", systemImage: "arrow.down.circle") }
+                    NavigationLink { StorageManagementView() } label: { Label("存储空间", systemImage: "internaldrive") }
+                        .accessibilityIdentifier("storageManagement")
                     NavigationLink { BackupSettingsView() } label: { Label("备份与恢复", systemImage: "externaldrive") }
                     NavigationLink { SettingsView() } label: { Label("设置", systemImage: "gearshape") }
                 }
@@ -193,6 +195,7 @@ private struct SettingsView: View {
                     NavigationLink("书架显示与筛选") { LibraryDisplaySettingsView() }
                     NavigationLink("分类") { CategoryManagerView() }
                     NavigationLink("书架更新") { LibraryUpdateSettingsView() }
+                    NavigationLink("漫画详情刷新") { SourceDetailsRefreshSettingsView() }
                 }
                 Section("数据") {
                     NavigationLink("备份与恢复") { BackupSettingsView() }

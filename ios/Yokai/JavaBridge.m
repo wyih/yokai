@@ -6,6 +6,20 @@
 #import "DesktopKeychain.h"
 #endif
 #include "jni.h"
+#if !TARGET_OS_MACCATALYST
+#include <signal.h>
+
+static void restoreNonfatalSignalHandler(int signalNumber, struct sigaction previous) {
+    // The pinned iOS Zero VM calls an unimplemented ucontext_get_pc before
+    // ignoring SIGPIPE/SIGXFSZ. Preserve native handlers without entering it.
+    if (previous.sa_handler == SIG_DFL) {
+        previous.sa_handler = SIG_IGN;
+        previous.sa_flags = 0;
+        sigemptyset(&previous.sa_mask);
+    }
+    sigaction(signalNumber, &previous, NULL);
+}
+#endif
 
 static JavaVM *runtime;
 static jclass engineClass;
@@ -141,7 +155,12 @@ static NSError *javaError(JNIEnv *env) {
 #if TARGET_OS_MACCATALYST
                     int result = createVM ? createVM(&runtime, (void **)&env, &args) : JNI_ERR;
 #else
+                    struct sigaction previousPipe = {0}, previousFileSize = {0};
+                    sigaction(SIGPIPE, NULL, &previousPipe);
+                    sigaction(SIGXFSZ, NULL, &previousFileSize);
                     int result = JNI_CreateJavaVM(&runtime, (void **)&env, &args);
+                    restoreNonfatalSignalHandler(SIGPIPE, previousPipe);
+                    restoreNonfatalSignalHandler(SIGXFSZ, previousFileSize);
 #endif
                     for (int i = 0; i < 6; i++) free(options[i].optionString);
                     if (result != JNI_OK) {

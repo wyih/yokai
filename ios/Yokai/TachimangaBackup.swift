@@ -66,7 +66,7 @@ enum TachimangaBackup {
             book.historyModifiedAt = book.lastRead != nil ? Date() : nil
             if let mode = metadata[key]?.first(where: { $0.text("key") == "flutter_readerMode" })?.text("value"),
                ["ltr", "rtl", "webtoon", "vertical"].contains(mode) { book.readerSettings = MangaReaderSettings(mode: mode) }
-            let sourceChapters = rows.map { SourceChapter(url: $0.text("url"), name: $0.text("name"), number: $0.decimal("chapter_number", fallback: -1), uploaded: milliseconds($0.integer("date_upload")), memo: memo($0.text("memo"))) }
+            let sourceChapters = rows.map { SourceChapter(url: $0.text("url"), name: $0.text("name"), number: $0.decimal("chapter_number", fallback: -1), uploaded: milliseconds($0.integer("date_upload")), memo: memo($0.text("memo")), scanlator: $0.values["scanlator"]) }
             let info = SourceManga(url: url, title: book.title, thumbnail: book.origin?.thumbnail, author: manga.values["author"], artist: manga.values["artist"],
                 description: manga.values["description"], genre: manga.values["genre"], status: Int(manga.integer("status")), memo: book.origin?.mangaMemo)
             book.mangaInfo = MangaMetadata(author: info.author, artist: info.artist, genre: info.genre, status: info.status, chapterCount: rows.count,

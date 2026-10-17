@@ -25,6 +25,16 @@ enum NativeBackup {
     }
     static func preferences(_ data: Data) throws -> [String: Any] {
         guard let values = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { throw SyncError.invalidData }
-        return values.filter { allowed($0.key) }
+        var restored = values.filter { allowed($0.key) }
+        // Old backups used one custom layout for both reading modes.
+        for setting in ["layout", "actions", "followDirection"] {
+            if let legacy = restored["tapZones." + setting] {
+                for mode in ["pager", "webtoon"] {
+                    let key = "tapZones.\(mode).\(setting)"
+                    if restored[key] == nil { restored[key] = legacy }
+                }
+            }
+        }
+        return restored
     }
 }

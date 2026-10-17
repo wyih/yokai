@@ -25,6 +25,39 @@ struct ReaderLayoutChoices: View {
     }
 }
 
+struct ReaderToolbarSettingsView: View {
+    @AppStorage("reader.toolbar.items", store: YokaiStorage.defaults) private var storedItems = ReaderToolbarItem.defaults
+    private var items: [ReaderToolbarItem] { ReaderToolbarItem.items(from: storedItems) }
+    private func save(_ items: [ReaderToolbarItem]) { storedItems = items.map(\.rawValue).joined(separator: ",") }
+    var body: some View {
+        List {
+            Section {
+                ForEach(items) { item in
+                    Label(item.title, systemImage: item.symbol).id("shown." + item.rawValue)
+                }
+                    .onMove { source, destination in
+                        var updated = items; updated.move(fromOffsets: source, toOffset: destination); save(updated)
+                    }
+                    .onDelete { offsets in
+                        var updated = items; updated.remove(atOffsets: offsets); save(updated)
+                    }
+            } header: { Text("已显示") } footer: { Text("拖动右侧把手调整顺序，点减号隐藏。自动滚动仅在连续阅读时显示。") }
+            Section("可添加") {
+                ForEach(ReaderToolbarItem.allCases.filter { !items.contains($0) }) { item in
+                    Button { save(items + [item]) } label: { Label(item.title, systemImage: "plus.circle") }
+                        .accessibilityIdentifier("readerToolbarAdd.\(item.rawValue)")
+                        .id("available." + item.rawValue)
+                }
+            }
+            Button("恢复默认工具栏") { storedItems = ReaderToolbarItem.defaults }
+                .accessibilityIdentifier("readerToolbarReset")
+        }
+        .environment(\.editMode, .constant(.active))
+        .navigationTitle("阅读工具栏").navigationBarTitleDisplayMode(.inline)
+        .accessibilityIdentifier("readerToolbarEditor")
+    }
+}
+
 struct MangaReaderSettingsView: View {
     let bookID: String
     @EnvironmentObject private var library: ComicLibrary
@@ -87,6 +120,7 @@ struct ReaderDefaultsView: View {
     @AppStorage("reader.webtoonZoomOut", store: YokaiStorage.defaults) private var zoomOut = false
     @AppStorage("readerBackground", store: YokaiStorage.defaults) private var background = "black"
     @AppStorage("autoScrollSpeed", store: YokaiStorage.defaults) private var speed = 40.0
+    @AppStorage("reader.holdToScroll", store: YokaiStorage.defaults) private var holdToScroll = true
     @AppStorage("downloads.aheadChapters", store: YokaiStorage.defaults) private var ahead = 0
     var body: some View {
         Form {
@@ -104,6 +138,8 @@ struct ReaderDefaultsView: View {
                 Toggle("封面单独显示", isOn: $shiftDoublePage)
                 Toggle("裁剪边框", isOn: $trim)
                 NavigationLink("点按区域") { TapZoneSettingsView() }
+                NavigationLink("阅读工具栏") { ReaderToolbarSettingsView() }
+                    .accessibilityIdentifier("readerToolbarSettings")
                 Toggle("长按图片显示操作", isOn: $longTap)
             }
             Section("显示") {
@@ -127,6 +163,12 @@ struct ReaderDefaultsView: View {
                 Picker("侧边留白", selection: $padding) { ForEach([0, 5, 10, 15, 20, 25], id: \.self) { Text("\($0)%").tag($0) } }
                 LabeledContent("自动滚动速度", value: "\(Int(speed))")
                 Slider(value: $speed, in: 10...150)
+                Toggle("边缘长按滚动", isOn: $holdToScroll)
+                    .accessibilityIdentifier("readerHoldToScroll")
+                if holdToScroll {
+                    Text("隐藏工具栏后，按住屏幕左右边缘滚动；上滑加速，下滑减速，松手停止。图片中间仍可长按显示操作。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Toggle("双击缩放", isOn: $doubleTap)
                 Toggle("允许缩小图片", isOn: $zoomOut)
                 Toggle("拆分并上下排列横向跨页", isOn: $webtoonSplit)

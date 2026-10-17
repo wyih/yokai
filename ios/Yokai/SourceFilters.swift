@@ -59,9 +59,32 @@ struct SavedSourceSearch: Codable, Identifiable {
     }
 }
 
+enum SourceSearchOrder {
+    static func prioritized(_ sources: [MangaSource], pinned: Set<String>, books: [ComicBook]) -> [MangaSource] {
+        var activity: [String: (count: Int, latest: Date)] = [:]
+        for book in books {
+            guard let sourceID = book.origin?.sourceID else { continue }
+            let dates = (book.chapters ?? []).compactMap(\.lastRead)
+            guard let latest = (dates + [book.lastRead].compactMap { $0 }).max() else { continue }
+            let old = activity[sourceID] ?? (0, .distantPast)
+            activity[sourceID] = (old.count + max(1, dates.count), max(old.latest, latest))
+        }
+        return sources.enumerated().sorted { lhs, rhs in
+            let a = lhs.element.id, b = rhs.element.id
+            if pinned.contains(a) != pinned.contains(b) { return pinned.contains(a) }
+            let first = activity[a] ?? (count: 0, latest: .distantPast)
+            let second = activity[b] ?? (count: 0, latest: .distantPast)
+            if first.count != second.count { return first.count > second.count }
+            if first.latest != second.latest { return first.latest > second.latest }
+            return lhs.offset < rhs.offset
+        }.map(\.element)
+    }
+}
+
 struct GlobalSearchView: View {
     var initialQuery = ""
     @EnvironmentObject private var extensions: ExtensionStore
+    @EnvironmentObject private var library: ComicLibrary
     @State private var query = ""
     @State private var results: [String: [SourceManga]] = [:]
     @State private var errors: [String: String] = [:]
@@ -71,19 +94,21 @@ struct GlobalSearchView: View {
     @State private var submittedQuery = ""
     @AppStorage("sources.searchPinnedOnly", store: YokaiStorage.defaults) private var pinnedOnly = false
     private var sources: [MangaSource] {
-        let pinned = YokaiStorage.defaults.stringArray(forKey: "sources.pinned") ?? []
+        let pinned = Set(YokaiStorage.defaults.stringArray(forKey: "sources.pinned") ?? [])
         let hidden = YokaiStorage.defaults.stringArray(forKey: "sources.hidden") ?? []
         return extensions.sources.filter { $0.error == nil && !hidden.contains($0.id) && (!pinnedOnly || pinned.contains($0.id)) }
     }
     var body: some View {
         List {
             Toggle("仅搜索置顶图源", isOn: $pinnedOnly)
+            Text("优先搜索置顶和常用图源，常用程度依据已有阅读记录。")
+                .font(.caption).foregroundStyle(.secondary)
             if busy { ProgressView("正在搜索…") }
             if sources.isEmpty {
                 Text(pinnedOnly ? "没有可搜索的置顶图源" : "没有可搜索的图源").foregroundStyle(.secondary)
             }
             ForEach(searchedSources) { source in
-                Section(source.name ?? source.package) {
+                Section {
                     ForEach(results[source.id] ?? []) { manga in
                         NavigationLink { SourceDetailsView(source: source, manga: manga) } label: {
                             HStack { MangaCover(source: source, url: manga.thumbnail).frame(width: 44, height: 66); Text(manga.title) }
@@ -94,6 +119,8 @@ struct GlobalSearchView: View {
                     else if results[source.id] == nil && busy { ProgressView("正在搜索此图源…") }
                     SourceCoverRecoveryView(source: source)
                     NavigationLink("在此图源继续搜索") { SourceBrowseView(source: source, initialQuery: submittedQuery) }
+                } header: {
+                    Text(source.name ?? source.package).accessibilityIdentifier("globalSearchSource-" + source.id)
                 }
             }
         }.navigationTitle("全局搜索").searchable(text: $query, prompt: "搜索所有启用的图源")
@@ -112,7 +139,8 @@ struct GlobalSearchView: View {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         submittedQuery = text
         guard !text.isEmpty, !sources.isEmpty else { return }
-        searchedSources = sources
+        searchedSources = SourceSearchOrder.prioritized(sources,
+            pinned: Set(YokaiStorage.defaults.stringArray(forKey: "sources.pinned") ?? []), books: library.books)
         let selected = searchedSources
         busy = true
         searching = Task {

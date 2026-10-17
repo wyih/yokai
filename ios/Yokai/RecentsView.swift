@@ -90,21 +90,33 @@ struct RecentsView: View {
     @State private var reading: ComicBook?
     @State private var details: ComicBook?
     @State private var showingMore = false
+    @State private var historyIndex: [Entry] = []
+    @State private var filteredHistory: [Entry] = []
+    @State private var historyLimit = historyBatchSize
+    private static let historyBatchSize = 50
     private struct Entry: Identifiable {
         var id: String { book.id + "\n" + (chapter?.url ?? "local") }
         let book: ComicBook
         let chapter: ChapterProgress?
         let date: Date
     }
-    private var history: [Entry] {
-        library.books.flatMap { book -> [Entry] in
+    private func rebuildHistory(_ books: [ComicBook]) {
+        historyIndex = books.flatMap { book -> [Entry] in
             guard let last = book.lastRead else { return [] }
             let rows = (book.chapters ?? []).compactMap { chapter -> Entry? in
                 guard let date = chapter.lastRead ?? (chapter.url == book.origin?.chapterURL ? last : nil) else { return nil }
                 return Entry(book: book, chapter: chapter, date: date)
             }
             return rows.isEmpty ? [Entry(book: book, chapter: nil, date: last)] : rows
-        }.filter { matches($0.book) }.sorted { $0.date > $1.date }
+        }.sorted { $0.date == $1.date ? $0.id < $1.id : $0.date > $1.date }
+        filterHistory()
+    }
+    private func filterHistory() {
+        filteredHistory = query.isEmpty ? historyIndex : historyIndex.filter { matches($0.book) }
+        historyLimit = max(Self.historyBatchSize, min(historyLimit, filteredHistory.count))
+    }
+    private func loadMoreHistory() {
+        historyLimit = min(historyLimit + Self.historyBatchSize, filteredHistory.count)
     }
     private func matches(_ book: ComicBook) -> Bool { query.isEmpty || book.title.localizedCaseInsensitiveContains(query) }
     var body: some View {
@@ -134,7 +146,7 @@ struct RecentsView: View {
                     }
                     if tab != "updates" {
                         Section("历史") {
-                            ForEach(history) { entry in
+                            ForEach(filteredHistory.prefix(historyLimit)) { entry in
                                 Button { open(entry) } label: {
                                     HStack {
                                         BookCover(book: entry.book).frame(width: 44, height: 66)
@@ -146,13 +158,23 @@ struct RecentsView: View {
                                     }
                                 }
                             }
-                            if history.isEmpty { Text("暂无阅读历史").foregroundStyle(.secondary) }
+                            if historyLimit < filteredHistory.count {
+                                Button("加载更多历史", action: loadMoreHistory)
+                                    .id(historyLimit)
+                                    .onAppear(perform: loadMoreHistory)
+                            }
+                            if filteredHistory.isEmpty { Text("暂无阅读历史").foregroundStyle(.secondary) }
                         }
                     }
                 }.refreshable { await activity.refresh(library: library, extensions: extensions, downloads: downloads) }
             }
             .navigationTitle("最近").navigationBarTitleDisplayMode(.inline)
             .searchable(text: $query, prompt: "搜索更新与历史")
+            .onChange(of: library.books, initial: true) { _, books in rebuildHistory(books) }
+            .onChange(of: query) { _, _ in
+                historyLimit = Self.historyBatchSize
+                filterHistory()
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("更多", systemImage: "line.3.horizontal") { showingMore = true } }
                 ToolbarItem(placement: .topBarTrailing) {

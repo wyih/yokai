@@ -25,6 +25,13 @@ struct ChapterDisplayOptions: Codable, Equatable {
     var read = "all"
     var downloaded = "all"
     var bookmarked = "all"
+    var scanlatorFilters: [String: String]? = nil
+
+    func acceptsScanlator(_ chapter: SourceChapter) -> Bool {
+        let filters = scanlatorFilters ?? [:]
+        let included = filters.filter { $0.value == "yes" }.map(\.key)
+        return filters[chapter.scanlatorKey] != "no" && (included.isEmpty || included.contains(chapter.scanlatorKey))
+    }
 }
 
 struct SourceDetailsView: View {
@@ -41,10 +48,12 @@ struct SourceDetailsView: View {
     @State private var webView = false
     @State private var settings = false
     @State private var showFilters = false
+    @State private var showRefreshSettings = false
     @State private var expandedDescription = false
     @State private var selectingChapters = false
     @State private var chosenChapters = Set<String>()
     @State private var query = ""
+    @State private var globalSearchQuery: String?
     @State private var options = ChapterDisplayOptions()
     @State private var mangaAddress: URL?
     @State private var choosingCategory = false
@@ -66,13 +75,20 @@ struct SourceDetailsView: View {
                 && (options.read == "all" || accepts(options.read, value: chapterProgress(chapter)?.completed ?? false))
                 && (options.downloaded == "all" || accepts(options.downloaded, value: isDownloaded(chapter)))
                 && (options.bookmarked == "all" || accepts(options.bookmarked, value: isBookmarked(chapter)))
+                && options.acceptsScanlator(chapter)
         }
     }
     private var selectedChapters: [SourceChapter] { allChapters.filter { chosenChapters.contains($0.url) } }
     private var nextUnread: SourceChapter? {
-        sortedChapters(descending: false).first { chapterProgress($0)?.completed != true }
+        sortedChapters(descending: false).first { options.acceptsScanlator($0) && chapterProgress($0)?.completed != true }
     }
     private var displayKey: String { "chapters.display." + bookID }
+    private var fetchedKey: String { "cache.details.lastFetched." + bookID }
+    private var scanlators: [String] {
+        Set(allChapters.map(\.scanlatorKey) + Array((options.scanlatorFilters ?? [:]).keys)).sorted {
+            $0.localizedStandardCompare($1) == .orderedAscending
+        }
+    }
 
     var body: some View {
         List {
@@ -101,10 +117,12 @@ struct SourceDetailsView: View {
                 if let description = information.description, !description.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("简介").font(.headline)
-                        Text(description).font(.subheadline).lineLimit(expandedDescription ? nil : 3)
-                        if expandedDescription, let genre = information.genre { Text(genre).font(.caption).foregroundStyle(.secondary) }
+                        Text(description).font(.subheadline).lineLimit(expandedDescription ? nil : 3).textSelection(.enabled)
                         Button(expandedDescription ? "收起" : "更多") { expandedDescription.toggle() }
                     }.listRowSeparator(.hidden)
+                }
+                if let genre = information.genre, !genre.isEmpty {
+                    MangaGenreView(genre: genre) { globalSearchQuery = $0 }.listRowSeparator(.hidden)
                 }
                 if !allChapters.isEmpty {
                     Button {
@@ -139,6 +157,7 @@ struct SourceDetailsView: View {
                     Spacer()
                     Button("排序与筛选", systemImage: "line.3.horizontal.decrease") { showFilters = true }
                         .labelStyle(.iconOnly)
+                        .accessibilityIdentifier("chapterFiltersButton")
                 }.textCase(nil)
             }
         }
@@ -146,6 +165,8 @@ struct SourceDetailsView: View {
         .navigationTitle(currentBook?.title ?? information.title).navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
         .searchable(text: $query, prompt: "搜索章节")
+        .submitScope()
+        .navigationDestination(item: $globalSearchQuery) { GlobalSearchView(initialQuery: $0) }
         .refreshable { await load() }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -166,8 +187,12 @@ struct SourceDetailsView: View {
                     }
                     Button("全部标记为已读") { mark(allChapters, completed: true) }
                     Button("全部标记为未读") { mark(allChapters, completed: false) }
+                    Button("刷新详情", systemImage: "arrow.clockwise") { Task { await load() } }
+                        .disabled(busy).accessibilityIdentifier("detailsRefreshNow")
+                    Button("详情刷新设置", systemImage: "clock.arrow.circlepath") { showRefreshSettings = true }
+                        .accessibilityIdentifier("detailsRefreshSettings")
                     Button("图源设置") { settings = true }
-                }
+                }.accessibilityIdentifier("chapterActionsMenu")
             }
         }
         .task {
@@ -179,13 +204,21 @@ struct SourceDetailsView: View {
                 await library.refreshDownloadedChapters(bookIDs: [book.id])
             }
             await updateWebAddress()
-            await load()
+            if SourceDetailsRefreshPolicy.shouldRefresh(cached: details, fetchedAt: YokaiStorage.defaults.object(forKey: fetchedKey) as? Date) {
+                await load()
+            }
         }
         .onChange(of: options) { _, value in
             if let data = try? JSONEncoder().encode(value) { YokaiStorage.defaults.set(data, forKey: displayKey) }
         }
         .onChange(of: library.changeCount) { _, _ in rebuildProgress() }
         .sheet(isPresented: $showFilters) { chapterFilters }
+        .sheet(isPresented: $showRefreshSettings) {
+            NavigationStack {
+                SourceDetailsRefreshSettingsView()
+                    .toolbar { Button("完成") { showRefreshSettings = false } }
+            }
+        }
         .alert("图源已移除 \(removedDownloads.count) 个已下载章节", isPresented: Binding(get: { !removedDownloads.isEmpty }, set: { if !$0 { removedDownloads = [] } })) {
             Button("保留下载", role: .cancel) { removedDownloads = [] }
             Button("删除下载", role: .destructive) { for chapter in removedDownloads { downloads.deleteIfAllowed(bookID: bookID, chapterURL: chapter.url) }; removedDownloads = [] }
@@ -213,8 +246,7 @@ struct SourceDetailsView: View {
                 } else { MangaCover(source: source, url: information.thumbnail) }
             }.frame(width: 100)
             VStack(alignment: .leading, spacing: 6) {
-                Text(currentBook?.title ?? information.title).font(.system(size: 20, weight: .semibold)).lineLimit(4)
-                if let author = information.author, !author.isEmpty { Text(author).font(.subheadline).foregroundStyle(.secondary) }
+                MangaMetadataView(title: currentBook?.title ?? information.title, author: information.author, artist: information.artist) { globalSearchQuery = $0 }
                 if let status = information.status, let title = statusTitle(status) { Text(title).font(.subheadline).foregroundStyle(.secondary) }
                 Text(source.name ?? source.package).font(.subheadline).foregroundStyle(.secondary)
             }
@@ -240,6 +272,7 @@ struct SourceDetailsView: View {
                         Text(chapter.name).lineLimit(2)
                     }.foregroundStyle(state?.completed == true ? .secondary : .primary)
                     HStack(spacing: 5) {
+                        if !chapter.scanlatorKey.isEmpty { Text(chapter.scanlatorKey) }
                         if chapter.uploaded > 0 { Text(Date(timeIntervalSince1970: Double(chapter.uploaded) / 1000), style: .date) }
                         if state?.completed == true { Text("已读") }
                         else if let state, state.lastPage > 0 { Text("第 \(state.lastPage + 1) 页") }
@@ -254,6 +287,7 @@ struct SourceDetailsView: View {
             }
         }
         .buttonStyle(.borderless).padding(.vertical, 5)
+        .accessibilityIdentifier("chapter-" + chapter.url)
         .contextMenu {
             Button(isBookmarked(chapter) ? "取消章节书签" : "添加章节书签", systemImage: "bookmark") {
                 let book = ensureBook(); library.bookmarkChapter(chapter, bookID: book.id)
@@ -288,7 +322,26 @@ struct SourceDetailsView: View {
                     filterPicker("已读", value: $options.read)
                     filterPicker("已下载", value: $options.downloaded)
                     filterPicker("有书签", value: $options.bookmarked)
-                    Button("重置") { options = ChapterDisplayOptions() }
+                    Button("重置") { options = ChapterDisplayOptions() }.accessibilityIdentifier("chapterFiltersReset")
+                }
+                if !scanlators.isEmpty {
+                    Section {
+                        ForEach(scanlators, id: \.self) { scanlator in
+                            Picker(scanlator.isEmpty ? "未标注汉化组" : scanlator, selection: Binding(
+                                get: { options.scanlatorFilters?[scanlator] ?? "all" },
+                                set: { value in
+                                    var filters = options.scanlatorFilters ?? [:]
+                                    filters[scanlator] = value == "all" ? nil : value
+                                    options.scanlatorFilters = filters.isEmpty ? nil : filters
+                                }
+                            )) {
+                                Text("不限").tag("all"); Text("包含").tag("yes"); Text("排除").tag("no")
+                            }.accessibilityIdentifier("scanlator-" + scanlator)
+                        }
+                        Button("清除汉化组筛选") { options.scanlatorFilters = nil }.accessibilityIdentifier("scanlatorFiltersReset")
+                    } header: { Text("汉化组") } footer: {
+                        Text("可包含多个汉化组；选择包含后，仅显示这些组的章节。排除会隐藏对应组。")
+                    }
                 }
             }.navigationTitle("排序与筛选").navigationBarTitleDisplayMode(.inline)
                 .toolbar { Button("完成") { showFilters = false } }
@@ -330,9 +383,9 @@ struct SourceDetailsView: View {
             return descending ? $0.offset < $1.offset : $0.offset > $1.offset
         }.map(\.element)
     }
-    private var unreadChapters: [SourceChapter] { sortedChapters(descending: false).filter { chapterProgress($0)?.completed != true && !isDownloaded($0) } }
+    private var unreadChapters: [SourceChapter] { sortedChapters(descending: false).filter { options.acceptsScanlator($0) && chapterProgress($0)?.completed != true && !isDownloaded($0) } }
     private var readButtonTitle: String {
-        guard let chapter = nextUnread else { return "所有章节已读" }
+        guard let chapter = nextUnread else { return "当前筛选下没有未读章节" }
         return (chapterProgress(chapter)?.lastPage ?? 0) > 0 ? "继续阅读 · \(chapter.name)" : "开始阅读 · \(chapter.name)"
     }
     private func updateWebAddress() async {
@@ -374,7 +427,12 @@ struct SourceDetailsView: View {
             case 2: for chapter in removed { downloads.deleteIfAllowed(bookID: bookID, chapterURL: chapter.url) }
             default: break
             }
-            details = result; library.saveDetails(result, source: source)
+            details = result
+            _ = library.addOnline(result.manga, source: source, favorite: false)
+            library.saveDetails(result, source: source)
+            if let book = currentBook, library.cachedDetails(for: book) == result {
+                YokaiStorage.defaults.set(Date(), forKey: fetchedKey)
+            }
             if let book = currentBook { await library.cacheSourceCover(book, source: source) }
         } catch { self.error = error.localizedDescription }
     }
@@ -398,17 +456,26 @@ private struct StoredBookDetailsView: View {
     let book: ComicBook
     @EnvironmentObject private var library: ComicLibrary
     @State private var reading: ComicBook?
+    @State private var globalSearchQuery: String?
     private var current: ComicBook { library.books.first { $0.id == book.id } ?? book }
+    private var information: SourceManga? { library.cachedDetails(for: current)?.manga }
     var body: some View {
         List {
             Section {
                 HStack(alignment: .top, spacing: 12) {
                     BookCover(book: current).frame(width: 100)
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(current.title).font(.system(size: 20, weight: .semibold)).lineLimit(4)
+                        MangaMetadataView(title: current.title, author: information?.author ?? current.mangaInfo?.author,
+                                          artist: information?.artist ?? current.mangaInfo?.artist) { globalSearchQuery = $0 }
                         Text(current.origin == nil ? "本地图源" : "图源插件尚未安装").font(.subheadline).foregroundStyle(.secondary)
                     }
                 }.listRowSeparator(.hidden)
+                if let description = information?.description, !description.isEmpty {
+                    Text(description).font(.subheadline).textSelection(.enabled)
+                }
+                if let genre = information?.genre ?? current.mangaInfo?.genre, !genre.isEmpty {
+                    MangaGenreView(genre: genre) { globalSearchQuery = $0 }
+                }
                 if library.isAvailable(current) {
                     Button(current.lastPage > 0 ? "继续阅读" : "开始阅读", systemImage: "play.fill") { reading = current }
                         .buttonStyle(.borderedProminent)
@@ -432,6 +499,7 @@ private struct StoredBookDetailsView: View {
             }
         }.listStyle(.plain)
             .navigationTitle(current.title).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
+            .navigationDestination(item: $globalSearchQuery) { GlobalSearchView(initialQuery: $0) }
             .task { await library.refreshDownloadedChapters(bookIDs: [current.id]) }
             .fullScreenCover(item: $reading) { book in ReaderView(book: book, directory: library.directory(for: book)) }
     }
@@ -440,5 +508,116 @@ private struct StoredBookDetailsView: View {
         guard let data = try? Data(contentsOf: directory.appendingPathComponent("chapter.json")),
               let cached = try? JSONDecoder().decode(CachedChapter.self, from: data) else { return }
         reading = library.openChapter(cached.chapter, pages: cached.pageCount, bookID: current.id)
+    }
+}
+
+enum SourceDetailsRefreshPolicy {
+    static let enabledKey = "sources.details.autoRefresh"
+    static let intervalKey = "sources.details.refreshInterval"
+    static let defaultInterval: Double = 900
+
+    static func shouldRefresh(cached: SourceDetails?, fetchedAt: Date?, defaults: UserDefaults = YokaiStorage.defaults,
+                              now: Date = Date()) -> Bool {
+        guard let cached, !cached.chapters.isEmpty else { return true }
+        let enabled = defaults.object(forKey: enabledKey) as? Bool ?? true
+        guard enabled else { return false }
+        guard let fetchedAt else { return true }
+        let interval = defaults.object(forKey: intervalKey) == nil ? defaultInterval : max(0, defaults.double(forKey: intervalKey))
+        let age = now.timeIntervalSince(fetchedAt)
+        return age < 0 || age >= interval
+    }
+}
+
+struct SourceDetailsRefreshSettingsView: View {
+    @AppStorage(SourceDetailsRefreshPolicy.enabledKey, store: YokaiStorage.defaults) private var enabled = true
+    @AppStorage(SourceDetailsRefreshPolicy.intervalKey, store: YokaiStorage.defaults) private var interval = SourceDetailsRefreshPolicy.defaultInterval
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("进入详情时自动刷新", isOn: $enabled).accessibilityIdentifier("detailsAutoRefresh")
+                Picker("最短刷新间隔", selection: $interval) {
+                    Text("每次进入").tag(0.0)
+                    Text("5 分钟").tag(300.0)
+                    Text("15 分钟").tag(900.0)
+                    Text("1 小时").tag(3600.0)
+                    Text("6 小时").tag(21600.0)
+                    Text("1 天").tag(86400.0)
+                }.disabled(!enabled).accessibilityIdentifier("detailsRefreshInterval")
+            } footer: {
+                Text("按每本漫画上次成功刷新详情的时间计算。没有缓存章节时仍会加载；下拉刷新或菜单中的“刷新详情”不受此设置限制。")
+            }
+        }.navigationTitle("详情刷新").navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+enum MangaGenres {
+    static func tags(_ genre: String) -> [String] {
+        var seen = Set<String>()
+        return genre.components(separatedBy: CharacterSet(charactersIn: ",，\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+}
+
+private struct MangaGenreView: View {
+    let genre: String
+    let search: (String) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(MangaGenres.tags(genre), id: \.self) { tag in
+                    Menu {
+                        Button("复制标签", systemImage: "doc.on.doc") { UIPasteboard.general.string = tag }
+                        Button("全局搜索", systemImage: "magnifyingglass") { search(tag) }
+                    } label: {
+                        Text(tag).font(.caption).padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(Color.accentColor.opacity(0.12), in: Capsule())
+                    } primaryAction: {
+                        search(tag)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("manga-genre-" + tag)
+                    .accessibilityLabel("标签：" + tag)
+                    .accessibilityHint("点按全局搜索，长按复制标签")
+                }
+            }
+        }
+    }
+}
+
+private struct MangaMetadataView: View {
+    let title: String
+    let author: String?
+    let artist: String?
+    let search: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            value(title, field: "title", label: "标题")
+                .font(.system(size: 20, weight: .semibold)).foregroundStyle(.primary).lineLimit(4)
+            if let author, !author.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                value(author, field: "author", label: "作者").font(.subheadline).foregroundStyle(Color.accentColor)
+            }
+            if let artist, !artist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, artist != author {
+                value(artist, field: "artist", label: "画师").font(.subheadline).foregroundStyle(Color.accentColor)
+            }
+        }
+    }
+
+    private func value(_ text: String, field: String, label: String) -> some View {
+        Menu {
+            Button("复制" + label, systemImage: "doc.on.doc") { UIPasteboard.general.string = text }
+            Button("全局搜索", systemImage: "magnifyingglass") { search(text) }
+        } label: {
+            Text(text).multilineTextAlignment(.leading)
+        } primaryAction: {
+            search(text)
+        }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("manga-" + field)
+            .accessibilityLabel(label + "：" + text)
+            .accessibilityHint("点按全局搜索，长按复制" + label)
     }
 }

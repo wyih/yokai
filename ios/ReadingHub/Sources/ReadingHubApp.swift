@@ -7,6 +7,7 @@ import QiyeModule
 @MainActor
 final class HubRouter: ObservableObject {
     @Published var module: ReaderModule?
+    @Published private(set) var scenePhase: ScenePhase = .inactive
     @Published var incomingFile: URL?
     private var comicSession: YokaiSession?
     private var bookModule: QiyeReaderModule?
@@ -42,6 +43,7 @@ final class HubRouter: ObservableObject {
         defaults.removeObject(forKey: "hub.pendingModule"); show(next)
     }
     func phase(_ phase: ScenePhase) {
+        scenePhase = phase
         comicSession?.phase(phase)
         if phase == .background {
             QiyeReaderModule.scheduleBackgroundRefresh()
@@ -137,7 +139,7 @@ private final class HubContainer: UIViewController {
         let next: UIViewController
         switch module {
         case .yokai:
-            if comicController == nil { comicController = UIHostingController(rootView: YokaiRootView(session: router.comics)) }
+            if comicController == nil { comicController = UIHostingController(rootView: HubComicsView(router: router)) }
             next = comicController!
         case .qiye:
             next = router.books.viewController
@@ -161,6 +163,14 @@ private final class HubContainer: UIViewController {
         alert.popoverPresentationController?.sourceView = view
         alert.popoverPresentationController?.sourceRect = CGRect(x: view.bounds.midX,y: view.bounds.midY,width: 1,height: 1)
         present(alert, animated: true)
+    }
+}
+
+private struct HubComicsView: View {
+    @ObservedObject var router: HubRouter
+    var body: some View {
+        YokaiRootView(session: router.comics)
+            .environment(\.scenePhase, router.scenePhase)
     }
 }
 

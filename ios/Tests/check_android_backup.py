@@ -137,6 +137,13 @@ public class BackupCheck {
         JSONObject book=again.getJSONArray("manga").getJSONObject(0);
         if(!book.getString("source").equals("-9223372036854775000"))throw new AssertionError("64-bit source ID changed");
         if(book.getJSONArray("chapters").getJSONObject(0).getInt("lastPage")!=44)throw new AssertionError("progress changed");
+        if(!book.getJSONArray("chapters").getJSONObject(0).getString("scanlator").equals("汉化组"))throw new AssertionError("scanlator not exposed to Swift");
+        JSONObject chapter=value.getJSONArray("manga").getJSONObject(0).getJSONArray("chapters").getJSONObject(0);
+        chapter.remove("scanlator");value.put("path",args[1]+".legacy");AndroidBackup.write(value);
+        if(!AndroidBackup.read(args[1]+".legacy").getJSONArray("manga").getJSONObject(0).getJSONArray("chapters").getJSONObject(0).getString("scanlator").equals("汉化组"))throw new AssertionError("legacy omitted scanlator lost");
+        value.getJSONArray("manga").getJSONObject(0).put("androidData","");
+        chapter.put("scanlator","新汉化组");value.put("path",args[1]+".fresh");AndroidBackup.write(value);
+        if(!AndroidBackup.read(args[1]+".fresh").getJSONArray("manga").getJSONObject(0).getJSONArray("chapters").getJSONObject(0).getString("scanlator").equals("新汉化组"))throw new AssertionError("new scanlator not exported");
     }
 }
 ''')

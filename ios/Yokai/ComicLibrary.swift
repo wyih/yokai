@@ -542,29 +542,45 @@ final class ComicLibrary: ObservableObject {
 
     func applyMigration(from original: ComicBook, to bookID: String, matches: [String: String], chapters: [SourceChapter], removeOriginal: Bool) {
         guard let i = books.firstIndex(where: { $0.id == bookID }) else { return }
+        let now = Date()
+        let destinationLastRead = books[i].lastRead
         var progress = books[i].chapters ?? []
         for old in original.chapters ?? [] {
             guard let url = matches[old.url], let chapter = chapters.first(where: { $0.url == url }) else { continue }
             let previous = progress.first { $0.url == url }
-            if previous?.completed == true && !old.completed { continue }
+            let position: ChapterProgress
+            if let previous, (previous.completed && !old.completed)
+                || (previous.completed == old.completed && (previous.lastRead ?? .distantPast) > (old.lastRead ?? .distantPast)) {
+                position = previous
+            } else { position = old }
+            let lastRead = [old.lastRead, previous?.lastRead].compactMap { $0 }.max()
+            let bookmarked = old.bookmarked == true || previous?.bookmarked == true
             progress.removeAll { $0.url == url }
-            progress.append(ChapterProgress(url: url, title: chapter.name, pageCount: old.pageCount, lastPage: old.lastPage,
-                completed: old.completed, lastRead: old.lastRead, bookmarked: old.bookmarked == true || previous?.bookmarked == true, bookmarkModifiedAt: Date()))
+            progress.append(ChapterProgress(url: url, title: chapter.name, pageCount: position.pageCount, lastPage: position.lastPage,
+                completed: old.completed || previous?.completed == true, lastRead: lastRead,
+                bookmarked: bookmarked, bookmarkModifiedAt: bookmarked ? now : previous?.bookmarkModifiedAt,
+                historyModifiedAt: lastRead == nil ? previous?.historyModifiedAt : now))
         }
         books[i].chapters = progress
         books[i].categories = Array(Set((books[i].categories ?? []) + (original.categories ?? []))).sorted()
-        books[i].readerSettings = original.readerSettings
+        if let settings = original.readerSettings { books[i].readerSettings = settings }
         for mark in original.bookmarks where !mark.deleted {
             guard let oldURL = mark.chapterURL, let url = matches[oldURL] else { continue }
             var copied = mark; copied.id = Self.hash(bookID + "\n" + mark.id); copied.chapterURL = url; copied.modifiedAt = Date()
             books[i].bookmarks.removeAll { $0.id == copied.id }; books[i].bookmarks.append(copied)
         }
-        if let oldURL = original.origin?.chapterURL, let url = matches[oldURL], let chapter = chapters.first(where: { $0.url == url }) {
+        if (original.lastRead ?? .distantPast) >= (destinationLastRead ?? .distantPast),
+           let oldURL = original.origin?.chapterURL, let url = matches[oldURL], let chapter = chapters.first(where: { $0.url == url }) {
             books[i].origin?.chapterURL = url; books[i].origin?.chapterTitle = chapter.name; books[i].origin?.chapterMemo = chapter.memo
-            books[i].pageCount = original.pageCount; books[i].lastPage = original.lastPage; books[i].lastRead = original.lastRead
+            let current = progress.first { $0.url == url }
+            books[i].pageCount = current?.pageCount ?? original.pageCount
+            books[i].lastPage = current?.lastPage ?? original.lastPage
+            books[i].lastRead = original.lastRead
             books[i].progressRevision = UUID().uuidString
         }
-        books[i].modifiedAt = Date()
+        books[i].lastRead = ([books[i].lastRead, destinationLastRead] + progress.map(\.lastRead)).compactMap { $0 }.max()
+        if books[i].lastRead != nil { books[i].historyModifiedAt = now }
+        books[i].modifiedAt = now
         if removeOriginal, let old = books.firstIndex(where: { $0.id == original.id }), old != i { books[old].inLibrary = false; books[old].modifiedAt = Date() }
         save()
     }
