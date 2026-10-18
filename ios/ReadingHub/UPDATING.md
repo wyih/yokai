@@ -1,6 +1,6 @@
 # 本机自动更新书房
 
-小虹已授权本机定时任务完成：拉取栖页 → 整合书房 → 检查 → 本地 Xcode 构建 → 覆盖安装已配对 iPhone → 更新续签固定包 → commit/push `wyih/yokai` 的 `codex/ios-port`。在 Codex 中每小时检查一次；安装和验证完成后才推送。可在 Codex 暂停「书房自动同步栖页」。
+小虹已授权本机定时任务完成：拉取栖页 → 整合书房 → 检查 → 本地 Xcode 构建 → 覆盖安装已配对 iPhone → 更新续签固定包 → commit/push `wyih/yokai` 的 `codex/ios-port`。在 Codex 中每天北京时间 20:00 检查一次；安装和验证完成后才推送。可在 Codex 暂停「书房自动同步栖页」。
 
 ## 判断是否需要更新
 
