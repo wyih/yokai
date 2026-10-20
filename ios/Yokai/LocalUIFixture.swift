@@ -310,6 +310,10 @@ enum LocalUIFixture {
         } catch { try? JSONSerialization.data(withJSONObject: ["passed": false, "error": error.localizedDescription]).write(to: output, options: .atomic) }
     }
     @MainActor static func checkFiles(library: ComicLibrary, extensions: ExtensionStore) async {
+        if ProcessInfo.processInfo.arguments.contains("-YokaiAnimationCheck") {
+            do { try ReaderAnimationChecks.prepare(library: library) }
+            catch { library.errorMessage = error.localizedDescription }
+        }
         if readerImageCheck, let source = extensions.sources.first(where: { $0.id == "reader-image" }) {
             do {
                 for book in library.books where book.origin?.sourceID == source.id { library.remove(book) }

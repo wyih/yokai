@@ -1,6 +1,55 @@
 import XCTest
+import UIKit
 
 final class HubFlowTests: XCTestCase {
+    func testAnimatedWebPInContinuousReader() throws { try checkAnimatedReader(mode: "webtoon") }
+    func testAnimatedWebPInPagedReader() throws { try checkAnimatedReader(mode: "ltr") }
+
+    private func checkAnimatedReader(mode: String) throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-YokaiLocalUIFixture", "-YokaiAnimationCheck"]
+        app.launchEnvironment["YOKAI_ANIMATION_MODE"] = mode
+        app.launch()
+        defer { app.terminate() }
+        XCTAssertTrue(app.buttons["Yōkai · 漫画"].waitForExistence(timeout: 15))
+        app.buttons["Yōkai · 漫画"].tap()
+        if app.alerts.firstMatch.exists { XCTFail(app.alerts.firstMatch.debugDescription); return }
+        app.buttons["书架"].firstMatch.tap()
+        let book = app.staticTexts["动图播放验证"].firstMatch
+        XCTAssertTrue(book.waitForExistence(timeout: 10), app.debugDescription)
+        book.tap()
+        app.buttons["开始阅读"].tap()
+        XCTAssertTrue(app.staticTexts["readerPage"].waitForExistence(timeout: 5))
+        assertAnimatedPixels(app)
+        // The same image must resume after the host propagates foreground state.
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        assertAnimatedPixels(app)
+        if mode == "ltr" {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).doubleTap()
+            assertAnimatedPixels(app)
+        }
+    }
+
+    private func assertAnimatedPixels(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        var colors = Set<String>()
+        for _ in 0..<8 {
+            let image = app.screenshot().image.cgImage!
+            let sample = image.cropping(to: CGRect(x: image.width / 2, y: image.height * 2 / 5, width: 1, height: 1))!
+            var pixel = [UInt8](repeating: 0, count: 4)
+            pixel.withUnsafeMutableBytes { buffer in
+                let context = CGContext(data: buffer.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                context.draw(sample, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            }
+            if pixel[0] > 180 && pixel[2] < 60 { colors.insert("red") }
+            if pixel[2] > 180 && pixel[0] < 60 { colors.insert("blue") }
+            if colors.count == 2 { break }
+            Thread.sleep(forTimeInterval: 0.13)
+        }
+        XCTAssertEqual(colors, ["red", "blue"], "Rendered pixels must change between both animation frames", file: file, line: line)
+    }
+
     func testLatestReaderLifecycle() throws {
         try runQiyeScript("reader-lifecycle-script")
     }

@@ -280,7 +280,11 @@ extension UIImage {
         }
     }
     func trimmingBorders() -> UIImage {
-        guard let original = cgImage else { return self }
+        guard let crop = borderCropRect(), let trimmed = cgImage?.cropping(to: crop) else { return self }
+        return UIImage(cgImage: trimmed, scale: scale, orientation: imageOrientation)
+    }
+    func borderCropRect() -> CGRect? {
+        guard let original = cgImage else { return nil }
         let factor = min(1.0, 256.0 / Double(max(original.width, original.height)))
         let width = max(1, Int(Double(original.width) * factor)), height = max(1, Int(Double(original.height) * factor))
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
@@ -302,7 +306,6 @@ extension UIImage {
             let sx = CGFloat(original.width) / CGFloat(width), sy = CGFloat(original.height) / CGFloat(height)
             return CGRect(x: CGFloat(left) * sx, y: CGFloat(top) * sy, width: CGFloat(right - left + 1) * sx, height: CGFloat(bottom - top + 1) * sy).integral
         }
-        guard let crop, let trimmed = original.cropping(to: crop) else { return self }
-        return UIImage(cgImage: trimmed, scale: scale, orientation: imageOrientation)
+        return crop
     }
 }

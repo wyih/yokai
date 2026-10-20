@@ -696,6 +696,10 @@ private struct ComicPage: View {
     @AppStorage("reader.longTap", store: YokaiStorage.defaults) private var longTap = true
     @State private var image: UIImage?
     @State private var originalImage: UIImage?
+    @State private var animation: ReaderImageAnimation?
+    @State private var imageTransform = ReaderImageTransform()
+    @State private var visible = false
+    @Environment(\.scenePhase) private var scenePhase
     @State private var aspect: CGFloat = 1
     @State private var failure: ReaderPageFailure?
     private var downloading: Bool { downloadState == .queued || downloadState == .downloading }
@@ -705,9 +709,18 @@ private struct ComicPage: View {
             if let image {
                 Group {
                     if fit {
-                        ZoomableImage(image: image, scale: scale, zoomStart: zoomStart, onTap: onTap)
+                        ZoomableImage(image: image, animation: animation, imageTransform: imageTransform,
+                                      playing: visible && scenePhase == .active, scale: scale, zoomStart: zoomStart, onTap: onTap)
                     } else {
-                        Image(uiImage: image).resizable().scaledToFit()
+                        Group {
+                            if let animation {
+                                AnimatedReaderImage(image: image, animation: animation, transform: imageTransform,
+                                                    playing: visible && scenePhase == .active)
+                                    .aspectRatio(aspect, contentMode: .fit)
+                            } else {
+                                Image(uiImage: image).resizable().scaledToFit()
+                            }
+                        }
                             .frame(maxWidth: .infinity)
                             .gesture(SpatialTapGesture(count: 2, coordinateSpace: .named("reader"))
                                 .exclusively(before: SpatialTapGesture(count: 1, coordinateSpace: .named("reader")))
@@ -752,8 +765,9 @@ private struct ComicPage: View {
         .task(id: "\(directory.path)-\(index)-\(trimBorders)-\(cacheVersion)-\(reloadVersion)-\(downloadState?.rawValue ?? "")-\(document?.pageCount ?? 0)-\(half ?? -1)-\(stackSpread)-\(rightFirst)-\(spreadGap)") {
             let identity = "\(directory.path)/\(index)-\(half ?? -1)-\(stackSpread)-\(rightFirst)-\(spreadGap)"
             guard image == nil || appliedTrim != trimBorders || loadedIdentity != identity else { return }
-            image = nil; originalImage = nil; failure = nil
+            image = nil; originalImage = nil; animation = nil; failure = nil
             var loaded: UIImage?
+            var loadedAnimation: ReaderImageAnimation?
             var loadFailure = ReaderPageFailure.unreadable
             if format == .pdf, let pdfPage = document?.page(at: index) {
                 let bounds = pdfPage.bounds(for: .mediaBox)
@@ -761,23 +775,34 @@ private struct ComicPage: View {
                 loaded = pdfPage.thumbnail(of: CGSize(width: width, height: width * bounds.height / max(bounds.width, 1)), for: .mediaBox)
             } else if format == .images {
                 let result = await Task.detached(priority: .userInitiated) {
-                    let image = ChapterArchive.image(directory: directory, index: index)
+                    let image = ChapterArchive.readerImage(directory: directory, index: index)
                     return (image, image == nil ? ReaderPageFailure.inspect(directory: directory, index: index) : nil)
                 }.value
-                loaded = result.0; loadFailure = result.1 ?? .unreadable
+                loaded = result.0?.image; loadedAnimation = result.0?.animation; loadFailure = result.1 ?? .unreadable
             } else if !FileManager.default.fileExists(atPath: directory.appendingPathComponent("comic.pdf").path) {
                 loadFailure = .missing
             }
             let original = loaded
-            if let half { loaded = loaded?.spreadHalf(half) }
-            if stackSpread, let current = loaded { loaded = await Task.detached { current.stackingSpread(rightFirst: rightFirst, gap: spreadGap) }.value }
-            if trimBorders, let current = loaded { loaded = await Task.detached { current.trimmingBorders() }.value }
+            var transform = ReaderImageTransform(half: half, stackSpread: stackSpread, rightFirst: rightFirst, spreadGap: spreadGap)
+            if let current = loaded {
+                let initialTransform = transform
+                let result = await Task.detached {
+                    var transform = initialTransform
+                    let arranged = transform.apply(to: current)
+                    // Keep one crop rectangle throughout an animation to prevent layout jumps.
+                    if trimBorders { transform.crop = arranged.borderCropRect() }
+                    return (transform.apply(to: current), transform)
+                }.value
+                loaded = result.0; transform = result.1
+            }
             guard !Task.isCancelled else { return }
             image = loaded; originalImage = original; failure = loaded == nil ? loadFailure : nil
+            animation = loadedAnimation; imageTransform = transform
             if let loaded { aspect = loaded.size.width / max(loaded.size.height, 1) }
             appliedTrim = trimBorders; loadedIdentity = identity
         }
-        .onDisappear { image = nil; originalImage = nil }
+        .onAppear { visible = true }
+        .onDisappear { visible = false; image = nil; originalImage = nil; animation = nil }
     }
     @State private var appliedTrim = false
     @State private var loadedIdentity = ""
@@ -785,6 +810,9 @@ private struct ComicPage: View {
 
 private struct ZoomableImage: UIViewRepresentable {
     let image: UIImage
+    let animation: ReaderImageAnimation?
+    let imageTransform: ReaderImageTransform
+    let playing: Bool
     var scale = "fit"
     var zoomStart = "center"
     let onTap: (CGPoint) -> Void
@@ -813,12 +841,13 @@ private struct ZoomableImage: UIViewRepresentable {
 
     func updateUIView(_ view: ImageScrollView, context: Context) {
         context.coordinator.onTap = onTap
-        let changed = view.imageView.image !== image || view.scaleMode != scale || view.zoomStart != zoomStart
+        let changed = view.poster !== image || view.scaleMode != scale || view.zoomStart != zoomStart
+        view.poster = image
+        view.imageView.configure(image: image, animation: animation, transform: imageTransform, playing: playing)
         view.scaleMode = scale; view.zoomStart = zoomStart
         view.clipsToBounds = true
         if changed {
             view.setZoomScale(1, animated: false)
-            view.imageView.image = image
             view.relayout = true; view.setNeedsLayout()
         }
     }
@@ -849,7 +878,8 @@ private struct ZoomableImage: UIViewRepresentable {
 }
 
 private final class ImageScrollView: UIScrollView {
-    let imageView = UIImageView()
+    let imageView = ReaderAnimatedImageView()
+    var poster: UIImage?
     var scaleMode = "fit"
     var zoomStart = "center"
     var relayout = true

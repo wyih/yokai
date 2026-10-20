@@ -309,12 +309,16 @@ enum ChapterArchive {
         } catch { try? FileManager.default.removeItem(at: temporary); throw error }
     }
     static func image(directory: URL, index: Int) -> UIImage? {
+        readerImage(directory: directory, index: index)?.image
+    }
+    static func readerImage(directory: URL, index: Int) -> ReaderPageImage? {
         let filename = String(format: "%06d", index)
-        if let image = UIImage(contentsOfFile: directory.appendingPathComponent(filename).path) { return image }
+        if let data = try? Data(contentsOf: directory.appendingPathComponent(filename), options: .mappedIfSafe),
+           let image = ReaderPageImage(data: data) { return image }
         guard let archive = try? Archive(url: directory.appendingPathComponent("chapter.cbz"), accessMode: .read, pathEncoding: nil), let entry = archive.first(where: { URL(fileURLWithPath: $0.path).deletingPathExtension().lastPathComponent == filename }) else { return nil }
         var data = Data()
         guard (try? archive.extract(entry, consumer: { data.append($0) })) != nil else { return nil }
-        return UIImage(data: data)
+        return ReaderPageImage(data: data)
     }
 }
 
