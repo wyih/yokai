@@ -35,7 +35,7 @@ public class FilterCheck {
   new Filter.TriState("冒险",changed?2:0){},
   new Filter.Select<String>("地区",new String[]{"全部","日本","中国"},changed?2:0){},
   new Filter.Sort("排序",new String[]{"日期","热度"},new Filter.Sort.Selection(changed?1:0,changed)){},
-  new Filter.Group<Filter<?>>("类型",Arrays.asList(new Filter.CheckBox("奇幻",changed){})){}
+  new Filter.Group<Filter<?>>("类型",Arrays.asList(new Filter.CheckBox("奇幻",changed){}))
  );}
  static Object call(JSONObject q){JSONObject r=new JSONObject(Engine.execute(q.toString()));if(r.has("error"))throw new AssertionError(r.getString("error"));return r.get("value");}
  public static void main(String[] args)throws Exception {
