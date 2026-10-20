@@ -26,8 +26,8 @@ info['CFBundleDisplayName'] = '书房'
 info['CFBundleName'] = 'ReadingHub'
 info['HubQiyeVersion'] = info['CFBundleShortVersionString']
 info['HubQiyeCommit'] = subprocess.check_output(['git', '-C', str(qiye), 'rev-parse', 'HEAD'], text=True).strip()
-info['CFBundleShortVersionString'] = '0.1.13'
-info['CFBundleVersion'] = '14'
+info['CFBundleShortVersionString'] = '0.1.14'
+info['CFBundleVersion'] = '15'
 info['CFBundleDocumentTypes'] += yokai['CFBundleDocumentTypes']
 info['UIBackgroundModes'] = ['audio','fetch','processing']
 info['BGTaskSchedulerPermittedIdentifiers'] = info.get('BGTaskSchedulerPermittedIdentifiers', []) + ['$(PRODUCT_BUNDLE_IDENTIFIER).yokai.refresh','$(PRODUCT_BUNDLE_IDENTIFIER).yokai.download.*']

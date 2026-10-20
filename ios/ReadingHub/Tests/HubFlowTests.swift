@@ -1,6 +1,10 @@
 import XCTest
 
 final class HubFlowTests: XCTestCase {
+    func testLatestReaderLifecycle() throws {
+        try runQiyeScript("reader-lifecycle-script")
+    }
+
     func testLatestBookManagement() throws {
         try runQiyeScript("book-management-script")
     }
