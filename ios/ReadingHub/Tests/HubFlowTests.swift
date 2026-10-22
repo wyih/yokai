@@ -50,6 +50,10 @@ final class HubFlowTests: XCTestCase {
         XCTAssertEqual(colors, ["red", "blue"], "Rendered pixels must change between both animation frames", file: file, line: line)
     }
 
+    func testLatestCoverSearch() throws {
+        try runQiyeScript("cover-search-script")
+    }
+
     func testLatestReaderLifecycle() throws {
         try runQiyeScript("reader-lifecycle-script")
     }
