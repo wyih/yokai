@@ -123,7 +123,16 @@ public final class Engine {
         if(action.equals("inspect"))return Artifact.inspect(q.getString("input"),q.getString("output"));
         if(action.equals("validateArtifact")) {
             initialize(q.getString("dataPath"));
-            try(Loader loader=new Loader(new File(q.getString("path")))) {
+            try(Loader loader=new Loader(new File(q.getString("path")));
+                java.util.zip.ZipFile jar=new java.util.zip.ZipFile(q.getString("path"))) {
+                // Factories alone do not verify lazily loaded request interceptors.
+                for(var entry:java.util.Collections.list(jar.entries())) {
+                    String name=entry.getName();if(!name.endsWith(".class"))continue;
+                    try {
+                        Class<?> type=Class.forName(name.substring(0,name.length()-6).replace('/','.'),false,loader);
+                        type.getDeclaredConstructors();type.getDeclaredMethods();
+                    }catch(LinkageError error){throw new IOException("新版插件未通过兼容性检查，原有插件已保留。",error);}
+                }
                 Object factory=Class.forName(q.getString("className"),true,loader).getDeclaredConstructor().newInstance();
                 List<Source> created=factory instanceof SourceFactory?((SourceFactory)factory).createSources():Collections.singletonList((Source)factory);
                 if(created.isEmpty())throw new IOException("插件没有提供漫画源。");
