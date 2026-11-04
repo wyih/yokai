@@ -12,6 +12,10 @@ import kotlinx.serialization.json.JsonObject;
 import kotlinx.coroutines.BuildersKt;
 import kotlin.coroutines.EmptyCoroutineContext;
 import org.json.*;
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassVisitor;
+import org.objectweb.asm.MethodVisitor;
+import org.objectweb.asm.Opcodes;
 import java.io.*;
 import java.net.*;
 import java.lang.reflect.*;
@@ -131,6 +135,20 @@ public final class Engine {
                     try {
                         Class<?> type=Class.forName(name.substring(0,name.length()-6).replace('/','.'),false,loader);
                         type.getDeclaredConstructors();type.getDeclaredMethods();
+                        // JVM verification accepts NEW on an abstract class until that path executes.
+                        new ClassReader(jar.getInputStream(entry).readAllBytes()).accept(new ClassVisitor(Opcodes.ASM9) {
+                            public MethodVisitor visitMethod(int access,String method,String descriptor,String signature,String[] exceptions) {
+                                return new MethodVisitor(Opcodes.ASM9) {
+                                    public void visitTypeInsn(int opcode,String name) {
+                                        if(opcode!=Opcodes.NEW)return;
+                                        try {
+                                            Class<?> allocated=Class.forName(name.replace('/','.'),false,loader);
+                                            if(Modifier.isAbstract(allocated.getModifiers()))throw new InstantiationError(name);
+                                        }catch(ClassNotFoundException error){throw new NoClassDefFoundError(name);}
+                                    }
+                                };
+                            }
+                        },ClassReader.SKIP_DEBUG|ClassReader.SKIP_FRAMES);
                     }catch(LinkageError error){throw new IOException("新版插件未通过兼容性检查，原有插件已保留。",error);}
                 }
                 Object factory=Class.forName(q.getString("className"),true,loader).getDeclaredConstructor().newInstance();

@@ -10,6 +10,8 @@ import org.objectweb.asm.*;
 import net.dongliu.apk.parser.ApkFile;
 import com.googlecode.d2j.dex.Dex2jar;
 import com.googlecode.d2j.Method;
+import com.googlecode.d2j.DexLabel;
+import com.googlecode.d2j.node.analysis.*;
 import com.googlecode.d2j.node.*;
 import com.googlecode.d2j.node.insn.*;
 import com.googlecode.d2j.reader.BaseDexFileReader;
@@ -31,19 +33,15 @@ public final class Artifact {
         for(DexClassNode cls:dex.clzs)for(DexMethodNode method:cls.methods==null?java.util.List.<DexMethodNode>of():cls.methods) {
             if(method.codeNode==null)continue;
             var stmts=method.codeNode.stmts;
+            if(stmts.stream().noneMatch(s->s instanceof TypeStmtNode t&&t.op==Op.NEW_INSTANCE&&classes.containsKey(t.type)))continue;
+            var allocations=constructorAllocations(method.codeNode);
             for(int i=0;i<stmts.size();i++) {
-                if(!(stmts.get(i) instanceof TypeStmtNode allocation)||allocation.op!=Op.NEW_INSTANCE)continue;
-                for(int j=i+1;j<stmts.size();j++) {
-                    var next=stmts.get(j);
-                    if(next instanceof ConstStmtNode constant&&constant.a!=allocation.a)continue;
-                    if(next instanceof MethodStmtNode call&&(call.op==Op.INVOKE_DIRECT||call.op==Op.INVOKE_DIRECT_RANGE)&&
-                       call.method.getName().equals("<init>")&&call.args.length>0&&call.args[0]==allocation.a&&
-                       !call.method.getOwner().equals(allocation.type)&&
-                       restoreConstructors(allocation.type,call.method,classes,constructors)) {
-                        // R8 can inline forwarding constructors, including enums and superclass chains.
-                        stmts.set(j,new MethodStmtNode(call.op,call.args,new Method(allocation.type,"<init>",call.method.getParameterTypes(),"V")));
-                    }
-                    break;
+                if(!(stmts.get(i) instanceof MethodStmtNode call))continue;
+                TypeStmtNode allocation=allocations.get(call);
+                if(allocation!=null&&!call.method.getOwner().equals(allocation.type)&&
+                   restoreConstructors(allocation.type,call.method,classes,constructors)) {
+                    // Arguments may run loops or calls before R8's inlined superclass constructor.
+                    stmts.set(i,new MethodStmtNode(call.op,call.args,new Method(allocation.type,"<init>",call.method.getParameterTypes(),"V")));
                 }
             }
         }
@@ -95,6 +93,60 @@ public final class Artifact {
                 }
             }
         }
+    }
+
+    private static boolean constructor(DexStmtNode stmt) {
+        return stmt instanceof MethodStmtNode call&&(call.op==Op.INVOKE_DIRECT||call.op==Op.INVOKE_DIRECT_RANGE)&&
+            call.method.getName().equals("<init>")&&call.args.length>0;
+    }
+
+    private static java.util.Map<MethodStmtNode,TypeStmtNode> constructorAllocations(DexCodeNode code) {
+        var stmts=code.stmts;
+        java.util.Map<DexLabel,Integer> labels=new java.util.HashMap<>();
+        for(int i=0;i<stmts.size();i++)if(stmts.get(i) instanceof DexLabelStmtNode label)labels.put(label.label,i);
+        java.util.List<DvmFrame<TypeStmtNode>> frames=new java.util.ArrayList<>(java.util.Collections.nCopies(stmts.size(),null));
+        java.util.ArrayDeque<Integer> pending=new java.util.ArrayDeque<>();
+        frames.set(0,new DvmFrame<>(code.totalRegister));pending.add(0);
+        DvmInterpreter<TypeStmtNode> interpreter=new DvmInterpreter<>() {
+            public TypeStmtNode newOperation(DexStmtNode s){return s.op==Op.NEW_INSTANCE?(TypeStmtNode)s:null;}
+            public TypeStmtNode copyOperation(DexStmtNode s,TypeStmtNode v){return v;}
+            public TypeStmtNode unaryOperation(DexStmtNode s,TypeStmtNode v){return s.op==Op.CHECK_CAST?v:null;}
+            public TypeStmtNode binaryOperation(DexStmtNode s,TypeStmtNode a,TypeStmtNode b){return null;}
+            public TypeStmtNode ternaryOperation(DexStmtNode s,TypeStmtNode a,TypeStmtNode b,TypeStmtNode c){return null;}
+            public TypeStmtNode naryOperation(DexStmtNode s,java.util.List<? extends TypeStmtNode> values){return null;}
+            public void returnOperation(DexStmtNode s,TypeStmtNode v){}
+        };
+        while(!pending.isEmpty()) {
+            int index=pending.remove();DexStmtNode stmt=stmts.get(index);
+            DvmFrame<TypeStmtNode> before=frames.get(index),after=new DvmFrame<TypeStmtNode>(code.totalRegister).init(before);
+            after.execute(stmt,interpreter);
+            if(constructor(stmt)) {
+                TypeStmtNode allocated=before.getReg(((MethodStmtNode)stmt).args[0]);
+                if(allocated!=null)for(int r=0;r<code.totalRegister;r++)if(after.getReg(r)==allocated)after.setReg(r,null);
+            }
+            if(index+1<stmts.size()&&(stmt.op==null||stmt.op.canContinue()))mergeAllocationFrame(frames,pending,index+1,after);
+            if(stmt instanceof JumpStmtNode jump)mergeAllocationFrame(frames,pending,labels.get(jump.label),after);
+            if(stmt instanceof BaseSwitchStmtNode branch)for(DexLabel label:branch.labels)mergeAllocationFrame(frames,pending,labels.get(label),after);
+            if(stmt.op!=null&&stmt.op.canThrow()&&code.tryStmts!=null)for(TryCatchNode block:code.tryStmts) {
+                if(index>=labels.get(block.start)&&index<labels.get(block.end))
+                    for(DexLabel handler:block.handler)mergeAllocationFrame(frames,pending,labels.get(handler),before);
+            }
+        }
+        java.util.Map<MethodStmtNode,TypeStmtNode> result=new java.util.HashMap<>();
+        for(int i=0;i<stmts.size();i++)if(frames.get(i)!=null&&constructor(stmts.get(i))) {
+            MethodStmtNode call=(MethodStmtNode)stmts.get(i);TypeStmtNode allocation=frames.get(i).getReg(call.args[0]);
+            if(allocation!=null)result.put(call,allocation);
+        }
+        return result;
+    }
+
+    private static void mergeAllocationFrame(java.util.List<DvmFrame<TypeStmtNode>> frames,java.util.ArrayDeque<Integer> pending,int index,DvmFrame<TypeStmtNode> incoming) {
+        DvmFrame<TypeStmtNode> current=frames.get(index);boolean changed=false;
+        if(current==null) {frames.set(index,new DvmFrame<TypeStmtNode>(incoming.getTotalRegisters()).init(incoming));changed=true;}
+        else for(int r=0;r<current.getTotalRegisters();r++)if(current.getReg(r)!=null&&current.getReg(r)!=incoming.getReg(r)) {
+            current.setReg(r,null);changed=true;
+        }
+        if(changed)pending.add(index);
     }
 
     private static final class FrameWriter extends ClassWriter {
