@@ -2,6 +2,13 @@ import XCTest
 import UIKit
 
 final class HubFlowTests: XCTestCase {
+    func testWebVerificationKeepsFreshCookies() throws {
+        let app = launchSearchFixture("-YokaiCoverCacheCheck")
+        defer { app.terminate() }
+        app.buttons["source-cover-check"].tap()
+        XCTAssertTrue(app.staticTexts["验证状态检查通过"].waitForExistence(timeout: 20), app.debugDescription)
+    }
+
     func testPagedChapterBoundaryKeepsVisiblePageAndProgressTogether() throws {
         let app = launchSearchFixture("-YokaiReaderChapterCheck")
         defer { app.terminate() }

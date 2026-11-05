@@ -583,13 +583,18 @@ struct SourceLoginView: View {
                   ["https", "http"].contains(url.scheme?.lowercased() ?? "") else { throw SourceError.message("此源没有提供有效的网页地址，请检查图源设置。") }
             hosts.insert(host)
             webView.customUserAgent = info.headers.first { $0.key.lowercased() == "user-agent" }?.value
+            let store = webView.configuration.websiteDataStore.httpCookieStore
+            let browserCookies = await currentBrowserCookies()
             let cookies = try await SourceEngine.call("exportCookies", ["host": host], as: [WebCookie].self)
             for item in cookies {
                 var properties: [HTTPCookiePropertyKey: Any] = [.name: item.name, .value: item.value, .domain: item.domain, .path: item.path]
                 if item.secure { properties[.secure] = "TRUE" }
                 if item.httpOnly { properties[HTTPCookiePropertyKey("HttpOnly")] = "TRUE" }
                 if let expires = item.expires { properties[.expires] = Date(timeIntervalSince1970: Double(expires) / 1000) }
-                if let cookie = HTTPCookie(properties: properties) { await webView.configuration.websiteDataStore.httpCookieStore.setCookie(cookie) }
+                if let cookie = HTTPCookie(properties: properties),
+                   !browserCookies.contains(where: { Self.key($0) == Self.key(cookie) && Self.partition($0) != nil }) {
+                    await store.setCookie(cookie)
+                }
             }
             var request = URLRequest(url: url)
             if url.host == URL(string: info.url)?.host {
@@ -601,7 +606,7 @@ struct SourceLoginView: View {
     func finish() async -> Bool {
         busy = true; defer { busy = false }
         do {
-            let cookies = await webView.configuration.websiteDataStore.httpCookieStore.allCookies()
+            let cookies = await currentBrowserCookies()
             let values: [[String: Any]] = cookies.map { cookie in
                 var value: [String: Any] = ["name": cookie.name, "value": cookie.value, "domain": cookie.domain, "path": cookie.path, "secure": cookie.isSecure, "httpOnly": cookie.isHTTPOnly]
                 if let date = cookie.expiresDate { value["expires"] = Int64(date.timeIntervalSince1970 * 1000) }
@@ -624,6 +629,40 @@ struct SourceLoginView: View {
         if (error as NSError).code != NSURLErrorCancelled { self.error = error.localizedDescription }
     }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { objectWillChange.send() }
+    private func currentBrowserCookies() async -> [HTTPCookie] {
+        let store = webView.configuration.websiteDataStore.httpCookieStore
+        let stored = await store.allCookies()
+        let selected = Self.cookiesForPlugin(stored, hosts: hosts)
+        // Older versions copied partitioned clearance into an unpartitioned cookie.
+        for cookie in stored where cookie.name == "cf_clearance" && Self.partition(cookie) == nil {
+            if selected.contains(where: { Self.key($0) == Self.key(cookie) && Self.partition($0) != nil }) {
+                await store.deleteCookie(cookie)
+            }
+        }
+        return selected
+    }
+    private static func key(_ cookie: HTTPCookie) -> String {
+        [cookie.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".")), cookie.path, cookie.name].joined(separator: "\n")
+    }
+    private static func partition(_ cookie: HTTPCookie) -> String? {
+        cookie.properties?[HTTPCookiePropertyKey("StoragePartition")] as? String
+    }
+    static func cookiesForPlugin(_ cookies: [HTTPCookie], hosts: Set<String>) -> [HTTPCookie] {
+        var selected: [String: HTTPCookie] = [:]
+        for cookie in cookies {
+            let domain = cookie.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            func matches(_ host: String) -> Bool { host == domain || host.hasSuffix("." + domain) }
+            guard hosts.contains(where: { matches($0.lowercased()) }), cookie.expiresDate.map({ $0 > Date() }) ?? true else { continue }
+            if let partition = partition(cookie) {
+                // The plugin makes first-party requests; another site's partition is unrelated.
+                guard let host = URL(string: partition)?.host, matches(host.lowercased()) else { continue }
+            }
+            let identity = key(cookie)
+            if let current = selected[identity], partition(current) != nil, partition(cookie) == nil { continue }
+            selected[identity] = cookie
+        }
+        return Array(selected.values)
+    }
     struct WebCookie: Decodable { let name, value, domain, path: String; let secure, httpOnly: Bool; let expires: Int64? }
 }
 private struct SourceWebView: UIViewRepresentable {

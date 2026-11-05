@@ -36,6 +36,8 @@ enum LocalUIFixture {
     @MainActor private static var coverRequests = 0
     @MainActor private static var coverVerified = false
     @MainActor private static var failCookieSync = false
+    @MainActor private static var exportedCookies: [[String: Any]] = []
+    @MainActor private static var importedCookies: [[String: Any]] = []
     @MainActor static func response(_ action: String, _ arguments: [String: Any]) async throws -> Any {
         if readerImageCheck {
             switch action {
@@ -102,11 +104,18 @@ enum LocalUIFixture {
         if ProcessInfo.processInfo.arguments.contains("-YokaiCoverCacheCheck") {
             switch action {
             case "load": return [["id": "cover-check", "name": "封面验证", "lang": "zh", "package": "fixture.cover"]]
+            case "popular", "latest":
+                let file = YokaiStorage.documents.appendingPathComponent("cover-check.json")
+                for _ in 0..<100 where !FileManager.default.fileExists(atPath: file.path) { try await Task.sleep(nanoseconds: 100_000_000) }
+                let result = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]
+                guard result["passed"] as? Bool == true else { throw SourceError.message(result["error"] as? String ?? "验证状态检查失败") }
+                return ["manga": [["url": "/verified", "title": "验证状态检查通过"]], "hasNext": false]
             case "webViewInfo": return ["url": "https://cover-check.invalid/", "headers": ["User-Agent": "Yokai-Cover-Check"]]
-            case "exportCookies": return [Any]()
+            case "exportCookies": return exportedCookies
             case "cookies":
                 if failCookieSync { throw SourceError.message("模拟 Cookie 同步失败") }
                 let cookies = arguments["cookies"] as? [[String: Any]] ?? []
+                importedCookies = cookies
                 coverVerified = (arguments["hosts"] as? [String])?.contains("cover-check.invalid") == true
                     && cookies.contains { ($0["name"] as? String) == "cover-check-clearance" && ($0["value"] as? String) == "verified" }
                 return true
@@ -194,6 +203,7 @@ enum LocalUIFixture {
     @MainActor static func checkCovers(extensions: ExtensionStore) async {
         guard ProcessInfo.processInfo.arguments.contains("-YokaiCoverCacheCheck"), let source = extensions.sources.first else { return }
         let output = YokaiStorage.documents.appendingPathComponent("cover-check.json")
+        try? FileManager.default.removeItem(at: output)
         do {
             let url = "https://cover-check.invalid/\(UUID().uuidString).png"
             var rejected = false
@@ -217,7 +227,32 @@ enum LocalUIFixture {
             guard image === cached, coverRequests == 2, SourceCoverCache.shared.errors[source.id]?[url] == nil else { throw SourceError.message("Verified cover must decode, clear its error and reuse its cache") }
             _ = try await SourceCoverCache.load(source: source, url: url, refresh: true)
             guard coverRequests == 3 else { throw SourceError.message("Explicit refresh must request a new cover") }
-            try JSONSerialization.data(withJSONObject: ["passed": true, "checks": ["cover errors are visible", "failed cookie sync does not retry", "WebView cookies reach the plugin", "verification completion triggers retry", "verified cover decodes and caches", "explicit refresh reloads"]]).write(to: output, options: .atomic)
+            let expires = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970) + 3600)
+            var properties: [HTTPCookiePropertyKey: Any] = [.domain: ".cover-check.invalid", .path: "/", .name: "cf_clearance", .value: "old", .secure: "TRUE", .expires: expires]
+            let old = HTTPCookie(properties: properties)!
+            properties[.value] = "fresh"
+            properties[HTTPCookiePropertyKey("StoragePartition")] = "https://cover-check.invalid"
+            let fresh = HTTPCookie(properties: properties)!
+            properties[.value] = "other-site"
+            properties[HTTPCookiePropertyKey("StoragePartition")] = "https://unrelated.invalid"
+            let otherSite = HTTPCookie(properties: properties)!
+            for values in [[fresh, old, otherSite], [otherSite, old, fresh]] {
+                let selected = SourceWebSession.cookiesForPlugin(values, hosts: ["cover-check.invalid"])
+                guard selected.count == 1, selected.first?.value == "fresh", selected.first?.expiresDate == expires else {
+                    throw SourceError.message("Partitioned clearance must win in either order without extending expiry")
+                }
+            }
+            await store.setCookie(old); await store.setCookie(fresh)
+            exportedCookies = [["name": old.name, "value": old.value, "domain": old.domain, "path": old.path, "secure": true, "httpOnly": false, "expires": Int64(expires.timeIntervalSince1970 * 1000)]]
+            let reopened = SourceWebSession()
+            await reopened.prepare(source: source, address: URL(string: url), manga: nil)
+            let browser = await store.allCookies().filter { $0.domain.contains("cover-check.invalid") && $0.name == "cf_clearance" }
+            guard browser.count == 1, browser.first?.value == "fresh" else { throw SourceError.message("Reopening must retain the browser's fresh cookie and remove its legacy duplicate") }
+            guard await reopened.finish() else { throw SourceError.message("Fresh clearance sync failed") }
+            let imported = importedCookies.filter { ($0["name"] as? String) == "cf_clearance" }
+            guard imported.count == 1, imported.first?["value"] as? String == "fresh" else { throw SourceError.message("Plugin received stale or duplicate clearance") }
+            await store.deleteCookie(fresh)
+            try JSONSerialization.data(withJSONObject: ["passed": true, "checks": ["cover errors are visible", "failed cookie sync does not retry", "WebView cookies reach the plugin", "verification completion triggers retry", "verified cover decodes and caches", "explicit refresh reloads", "partitioned clearance wins in either order", "unrelated partition excluded", "expiry unchanged", "reopening retains fresh browser cookie", "legacy duplicate removed", "plugin receives fresh clearance"]]).write(to: output, options: .atomic)
         } catch { try? JSONSerialization.data(withJSONObject: ["passed": false, "error": error.localizedDescription]).write(to: output, options: .atomic) }
     }
     @MainActor static func checkDownloads(extensions: ExtensionStore) async {
