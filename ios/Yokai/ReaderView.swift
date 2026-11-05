@@ -647,7 +647,9 @@ struct ReaderView: View {
     private func switchChapter(_ chapter: SourceChapter, count: Int) {
         downloads.leftChapter(bookID: book.id, chapterURL: book.origin?.chapterURL, order: orderedChapters.map(\.url))
         guard let updated = library.openChapter(chapter, pages: count, bookID: book.id) else { return }
-        document = nil; activeBook = updated; page = updated.lastPage; scrollTarget = updated.lastPage
+        document = nil; activeBook = updated
+        // Reset the pager before SwiftUI creates the next chapter's controller.
+        jump(to: updated.lastPage)
     }
     private func preloadChapters() {
         guard prefetchedChapter != book.origin?.chapterURL, let current = orderedChapters.firstIndex(where: { $0.url == book.origin?.chapterURL }),

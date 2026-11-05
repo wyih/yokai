@@ -13,6 +13,7 @@ enum LocalUIFixture {
     private static var metadataFeaturesCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiMetadataFeaturesCheck") }
     private static var sourceFilterCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiLibrarySourceFilterCheck") }
     private static var readerCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiReaderInteractionCheck") }
+    private static var readerChapterCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiReaderChapterCheck") }
     private static var readerImageCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiReaderImageCheck") }
     private static var historyCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiHistoryBatchCheck") }
     private static let metadataManga = SourceManga(
@@ -80,7 +81,7 @@ enum LocalUIFixture {
             default: throw SourceError.message("详情组合验证不执行其他插件请求。")
             }
         }
-        if readerCheck || historyCheck {
+        if readerCheck || readerChapterCheck || historyCheck {
             if action == "load" { return [Any]() }
             throw SourceError.message("阅读与历史验证仅使用本地漫画。")
         }
@@ -351,7 +352,7 @@ enum LocalUIFixture {
             }
             library.acceptSync(state, captured: captured)
         }
-        if readerCheck || historyCheck {
+        if readerCheck || readerChapterCheck || historyCheck {
             do { try prepareReaderAndHistory(library: library) }
             catch { library.errorMessage = error.localizedDescription }
         }
@@ -452,6 +453,30 @@ enum LocalUIFixture {
         let captured = library.snapshot()
         var state = captured
         var fixtures: [ComicBook] = []
+        if readerChapterCheck {
+            YokaiStorage.defaults.set(true, forKey: "reader.animate")
+            YokaiStorage.defaults.set(false, forKey: "reader.skipRead")
+            let chapters = (1...2).map { SourceChapter(url: "/reader-chapters/\($0)", name: "翻页验证第\($0)话", number: Double($0), uploaded: 0) }
+            var book = ComicBook(id: ComicLibrary.hash("reader-chapters"), title: "章节翻页验证", format: .images, pageCount: 6, importedAt: Date())
+            book.origin = ComicOrigin(sourceID: "reader-chapters", mangaURL: "/reader-chapters", chapterURL: chapters[0].url, chapterTitle: chapters[0].name)
+            book.readerSettings = MangaReaderSettings(mode: "ltr", trimBorders: false, layout: "single")
+            let format = UIGraphicsImageRendererFormat(); format.scale = 1
+            for (chapterIndex, chapter) in chapters.enumerated() {
+                let folder = library.chapterDirectory(bookID: book.id, chapterURL: chapter.url)
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                for page in 0..<book.pageCount {
+                    let image = UIGraphicsImageRenderer(size: CGSize(width: 240, height: 360), format: format).image { context in
+                        UIColor(hue: CGFloat(chapterIndex * 6 + page) / 12, saturation: 0.6, brightness: 0.8, alpha: 1).setFill()
+                        context.fill(CGRect(x: 0, y: 0, width: 240, height: 360))
+                        ("第\(chapterIndex + 1)话 · 第\(page + 1)页" as NSString).draw(at: CGPoint(x: 10, y: 150), withAttributes: [.font: UIFont.systemFont(ofSize: 22), .foregroundColor: UIColor.white])
+                    }
+                    try image.pngData()!.write(to: folder.appendingPathComponent(String(format: "%06d", page)), options: .atomic)
+                }
+                try JSONEncoder().encode(CachedChapter(chapter: chapter, pageCount: book.pageCount)).write(to: folder.appendingPathComponent("chapter.json"), options: .atomic)
+            }
+            try library.cacheImportedDetails(SourceDetails(manga: SourceManga(url: "/reader-chapters", title: book.title), chapters: chapters.reversed()), bookID: book.id)
+            fixtures.append(book)
+        }
         if readerCheck {
             let defaults = YokaiStorage.defaults
             defaults.set(ReaderToolbarItem.defaults, forKey: "reader.toolbar.items")

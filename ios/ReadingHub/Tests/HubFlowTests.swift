@@ -2,6 +2,39 @@ import XCTest
 import UIKit
 
 final class HubFlowTests: XCTestCase {
+    func testPagedChapterBoundaryKeepsVisiblePageAndProgressTogether() throws {
+        let app = launchSearchFixture("-YokaiReaderChapterCheck")
+        defer { app.terminate() }
+        app.buttons["书架"].firstMatch.tap()
+        let book = app.staticTexts["章节翻页验证"].firstMatch
+        XCTAssertTrue(book.waitForExistence(timeout: 10)); book.tap()
+        app.buttons["开始阅读"].tap()
+        let page = app.staticTexts["readerPage"]
+        func expect(_ chapter: Int, _ number: Int, file: StaticString = #filePath, line: UInt = #line) {
+            let correct = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                page.exists && page.label == "\(number) / 6" && app.staticTexts["翻页验证第\(chapter)话"].exists
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [correct], timeout: 5), .completed, app.debugDescription, file: file, line: line)
+        }
+        let left = app.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
+        let right = app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
+        expect(1, 1)
+        left.press(forDuration: 0.05, thenDragTo: right)
+        expect(1, 1)
+        for _ in 0..<3 {
+            app.sliders["跳转页码"].adjust(toNormalizedSliderPosition: 1)
+            expect(1, 6)
+            right.press(forDuration: 0.05, thenDragTo: left)
+            expect(2, 1)
+            right.press(forDuration: 0.05, thenDragTo: left)
+            expect(2, 2)
+            left.press(forDuration: 0.05, thenDragTo: right)
+            expect(2, 1)
+            left.press(forDuration: 0.05, thenDragTo: right)
+            expect(1, 1)
+        }
+    }
+
     func testAnimatedWebPInContinuousReader() throws { try checkAnimatedReader(mode: "webtoon") }
     func testAnimatedWebPInPagedReader() throws { try checkAnimatedReader(mode: "ltr") }
 
