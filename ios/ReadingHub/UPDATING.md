@@ -7,6 +7,7 @@
 - 栖页为相邻的 `qiye-reader` 仓库，跟踪 `origin/main`。先 fetch，再用 `git pull --ff-only` 拉取；书房也先核对远端分支。保留其他工作产生的修改，有冲突时等待处理，不 reset、stash 或覆盖它们。
 - 已安装来源以 `health_monitor/private/qiye-renewal/source.ipa` 中的 `HubQiyeCommit` 为准，同时核对 `config.json`、`state.json` 与手机实际版本。比较该提交至栖页 `origin/main` 的实际差异。
 - 更新范围为 `app/src/main/assets/`、`ios-app/App/`、`ios-app/Sources/`、`ios-app/Config/`、`ios-app/Package.swift` 及依赖锁定文件。仅 Android、桌面、文档或测试变化时不安装。共享发布说明或 iOS 版本变化也同步到书房。
+- 漫画修复版也执行上述栖页来源核对并整合相关更新。新来源验证失败时诊断整合问题；退回旧来源不能记为已同步最新。生成工程后核对 `build/source-roots.json` 与 `HubQiyeCommit`，避免继续引用上轮固定的旧源码。
 - 有更新时递增 `generate-project.py` 的书房 patch 版本和 build，更新 README 中的来源与实际变化。临时文件及日志放在 `build/update-版本/`，设置 `TMPDIR`、`TMP`、`TEMP` 到该目录下的 `runtime/`。
 - 未完成的更新记录在忽略目录 `build/auto-update/state.json`：保存来源提交、目标版本、当前阶段、改动文件清单和产物路径。设备离线时保留构建结果，下次从安装继续；若来源或本地修改变化，先核对再继续，不重复升版。
 
