@@ -1,6 +1,6 @@
 # Yōkai Mac 版
 
-当前 Mac 版本为 0.1.5，支持 Apple Silicon 和 macOS 14.5 及以上。解压 `outputs/desktop/Yokai-0.1.5-mac-arm64.zip`，将 `Yokai.app` 放到应用程序目录即可运行。Java 运行时和八个图源插件已包含在应用内。
+当前 Mac 版本为 0.1.6，支持 Apple Silicon 和 macOS 14.5 及以上。解压 `outputs/desktop/Yokai-0.1.6-mac-arm64.zip`，将 `Yokai.app` 放到应用程序目录即可运行。Java 运行时和八个图源插件已包含在应用内。
 
 浏览页输入漫画关键词后，按回车或点“全局搜索”进入跨图源搜索；地球按钮也会携带已输入的关键词。漫画关键词不会筛掉图源；需要按图源名称筛选时，使用图源列表中的独立输入框。全局搜索最多同时请求五个图源，各自显示加载、结果或错误。
 
@@ -22,7 +22,7 @@ Mac Catalyst 目标直接复用 iOS 的 SwiftUI 界面、漫画源引擎、书�
 ./desktop/build-mac.sh
 ```
 
-产物写入 `outputs/desktop/`。构建复用 `ios/Runtime/dependencies.json` 中固定版本和校验值的依赖。存在唯一有效的 Apple Development 证书时使用该证书签名，否则使用本机临时签名；可通过 `YOKAI_MAC_SIGNING_IDENTITY` 指定身份。安装包尚未经过 Apple 公证。
+产物写入 `outputs/desktop/`。构建复用 `ios/Runtime/dependencies.json` 中固定版本和校验值的依赖。存在唯一有效的 Apple Development 证书时使用该证书签名，否则使用本机临时签名；可通过 `YOKAI_MAC_SIGNING_IDENTITY` 指定身份。桌面打包使用已有证书，不请求 iOS provisioning profile；登录钥匙串可用时，锁屏下也能签名、覆盖安装和执行后台检查。安装包尚未经过 Apple 公证。
 
 核心检查使用 Debug 构建，创建独立测试书架，并检查图源加载、钥匙串读写、本地 CBZ 导入和进度保存：
 
@@ -32,3 +32,9 @@ outputs/desktop/Yokai.app/Contents/MacOS/Yokai --desktop-check "$PWD/ios/build/m
 ```
 
 结果写入 `ios/build/mac-check/result.json`。`--online` 额外验证热辣漫画的目录、章节、页列表和图片下载。同步合并与 WebDAV 协议沿用 `swift test --package-path ios` 的测试。
+
+2026-11-05：0.1.6（7）已覆盖安装到 `/Applications/Yokai.app` 并启动，同步书房 0.1.19 的共用插件转换器与兼容库，保留 APK assets 资源、恢复 R8 省略的构造函数并重算类型校验信息；函数调用、循环或寄存器转移后的搜索筛选项也保留原类型。安装前检查错误类与抽象类实例化，失败时保留旧插件。
+
+Debug、Release 构建及正式包签名、ZIP 检查通过；安装包中的 Engine/compat 与当前源码构建产物逐字节一致。原生桌面检查通过八个图源加载、钥匙串并发读写、CBZ 导入及阅读进度保存。桌面应用通过文件导入完成巴卡 1.6.72、香香 1.6.1、漫蛙 1.6.2、哔咔 1.6.14、vomic 1.6.1 的转换和安装。安装后的八个插件均通过筛选项检查；使用已安装运行时、插件及桌面现有凭据搜索“野兽”，香香、漫蛙、哔咔、vomic 分别返回 18、24、20、10 项，巴卡需要 WebView 网站验证。锁屏限制界面核验，签名及更新已经完成。
+
+原有 79 条漫画、收藏、阅读进度和书签保留；应用启动后自动刷新了部分章节统计和封面。vomic 上游图源 ID 随新版变化，现有书库未引用旧 ID。另发现未更新的拷贝漫画 1.4.53 在加载分类时有词典资源错误，独立于本次五个插件更新。旧应用、旧插件、安装及搜索检查记录保存在 `ios/build/desktop-0.1.6/`。
