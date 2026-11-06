@@ -50,6 +50,7 @@ struct SourceDetailsView: View {
     @State private var showFilters = false
     @State private var showRefreshSettings = false
     @State private var expandedDescription = false
+    @State private var previewingCover = false
     @State private var selectingChapters = false
     @State private var chosenChapters = Set<String>()
     @State private var query = ""
@@ -117,20 +118,13 @@ struct SourceDetailsView: View {
                 if let description = information.description, !description.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("简介").font(.headline)
-                        Text(description).font(.subheadline).lineLimit(expandedDescription ? nil : 3).textSelection(.enabled)
+                        Text(MangaDescription.render(description)).font(.subheadline).lineLimit(expandedDescription ? nil : 3).textSelection(.enabled)
+                            .accessibilityIdentifier("mangaDescription")
                         Button(expandedDescription ? "收起" : "更多") { expandedDescription.toggle() }
                     }.listRowSeparator(.hidden)
                 }
                 if let genre = information.genre, !genre.isEmpty {
                     MangaGenreView(genre: genre) { globalSearchQuery = $0 }.listRowSeparator(.hidden)
-                }
-                if !allChapters.isEmpty {
-                    Button {
-                        if let chapter = nextUnread { read(chapter) }
-                    } label: {
-                        Label(readButtonTitle, systemImage: "play.fill").frame(maxWidth: .infinity)
-                    }.buttonStyle(.borderedProminent).disabled(nextUnread == nil)
-                        .listRowSeparator(.hidden)
                 }
             }
             if busy { ProgressView("正在更新漫画信息与章节…") }
@@ -162,6 +156,15 @@ struct SourceDetailsView: View {
             }
         }
         .listStyle(.plain)
+        .safeAreaInset(edge: .bottom) {
+            if !allChapters.isEmpty && !selectingChapters {
+                Button { if let chapter = nextUnread { read(chapter) } } label: {
+                    Label(readButtonTitle, systemImage: "play.fill").frame(maxWidth: .infinity)
+                }.buttonStyle(.borderedProminent).disabled(nextUnread == nil || requestedDownload != nil)
+                    .accessibilityIdentifier("detailsContinueReading")
+                    .padding().background(.regularMaterial)
+            }
+        }
         .navigationTitle(currentBook?.title ?? information.title).navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
         .searchable(text: $query, prompt: "搜索章节")
@@ -213,6 +216,9 @@ struct SourceDetailsView: View {
         }
         .onChange(of: library.changeCount) { _, _ in rebuildProgress() }
         .sheet(isPresented: $showFilters) { chapterFilters }
+        .fullScreenCover(isPresented: $previewingCover) {
+            CoverPreview(book: currentBook, source: source, url: information.thumbnail, title: currentBook?.title ?? information.title)
+        }
         .sheet(isPresented: $showRefreshSettings) {
             NavigationStack {
                 SourceDetailsRefreshSettingsView()
@@ -240,11 +246,12 @@ struct SourceDetailsView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
-            Group {
+            Button { previewingCover = true } label: { Group {
                 if let book = currentBook {
                     BookCover(book: book)
                 } else { MangaCover(source: source, url: information.thumbnail) }
-            }.frame(width: 100)
+            }.frame(width: 100) }.buttonStyle(.plain).accessibilityLabel("查看封面大图")
+                .accessibilityIdentifier("mangaCoverPreview")
             VStack(alignment: .leading, spacing: 6) {
                 MangaMetadataView(title: currentBook?.title ?? information.title, author: information.author, artist: information.artist) { globalSearchQuery = $0 }
                 if let status = information.status, let title = statusTitle(status) { Text(title).font(.subheadline).foregroundStyle(.secondary) }
@@ -457,13 +464,15 @@ private struct StoredBookDetailsView: View {
     @EnvironmentObject private var library: ComicLibrary
     @State private var reading: ComicBook?
     @State private var globalSearchQuery: String?
+    @State private var previewingCover = false
     private var current: ComicBook { library.books.first { $0.id == book.id } ?? book }
     private var information: SourceManga? { library.cachedDetails(for: current)?.manga }
     var body: some View {
         List {
             Section {
                 HStack(alignment: .top, spacing: 12) {
-                    BookCover(book: current).frame(width: 100)
+                    Button { previewingCover = true } label: { BookCover(book: current).frame(width: 100) }
+                        .buttonStyle(.plain).accessibilityLabel("查看封面大图").accessibilityIdentifier("mangaCoverPreview")
                     VStack(alignment: .leading, spacing: 6) {
                         MangaMetadataView(title: current.title, author: information?.author ?? current.mangaInfo?.author,
                                           artist: information?.artist ?? current.mangaInfo?.artist) { globalSearchQuery = $0 }
@@ -471,14 +480,11 @@ private struct StoredBookDetailsView: View {
                     }
                 }.listRowSeparator(.hidden)
                 if let description = information?.description, !description.isEmpty {
-                    Text(description).font(.subheadline).textSelection(.enabled)
+                    Text(MangaDescription.render(description)).font(.subheadline).textSelection(.enabled)
+                        .accessibilityIdentifier("mangaDescription")
                 }
                 if let genre = information?.genre ?? current.mangaInfo?.genre, !genre.isEmpty {
                     MangaGenreView(genre: genre) { globalSearchQuery = $0 }
-                }
-                if library.isAvailable(current) {
-                    Button(current.lastPage > 0 ? "继续阅读" : "开始阅读", systemImage: "play.fill") { reading = current }
-                        .buttonStyle(.borderedProminent)
                 }
             }
             Section("章节") {
@@ -498,9 +504,18 @@ private struct StoredBookDetailsView: View {
                 }
             }
         }.listStyle(.plain)
+            .safeAreaInset(edge: .bottom) {
+                if library.isAvailable(current) {
+                    Button { reading = current } label: {
+                        Label(current.lastPage > 0 ? "继续阅读" : "开始阅读", systemImage: "play.fill").frame(maxWidth: .infinity)
+                    }.buttonStyle(.borderedProminent).accessibilityIdentifier("detailsContinueReading")
+                        .padding().background(.regularMaterial)
+                }
+            }
             .navigationTitle(current.title).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
             .navigationDestination(item: $globalSearchQuery) { GlobalSearchView(initialQuery: $0) }
             .task { await library.refreshDownloadedChapters(bookIDs: [current.id]) }
+            .fullScreenCover(isPresented: $previewingCover) { CoverPreview(book: current, source: nil, url: nil, title: current.title) }
             .fullScreenCover(item: $reading) { book in ReaderView(book: book, directory: library.directory(for: book)) }
     }
     private func open(_ chapter: SourceChapter) {

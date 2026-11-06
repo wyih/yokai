@@ -348,11 +348,20 @@ final class ComicLibrary: ObservableObject {
     func saveDetails(_ details: SourceDetails, source: MangaSource) {
         let id = Self.hash(source.id + "\n" + details.manga.url)
         guard let index = books.firstIndex(where: { $0.id == id }) else { return }
+        let previousChapters = cachedDetails(for: books[index])?.chapters ?? []
         do {
             let directory = root.appendingPathComponent(id)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try JSONEncoder().encode(details).write(to: directory.appendingPathComponent("manga.json"), options: .atomic)
             detailsCache[id] = details
+            if YokaiStorage.defaults.bool(forKey: DuplicateChapterProgress.newKey) {
+                let progress = books[index].chapters ?? []
+                let knownURLs = Set(previousChapters.map(\.url) + progress.map(\.url))
+                books[index].chapters = DuplicateChapterProgress.marking(progress,
+                    chapters: details.chapters.map { ($0.url, $0.name, $0.number) },
+                    completedURLs: Set(progress.filter(\.completed).map(\.url)),
+                    eligibleURLs: Set(details.chapters.map(\.url)).subtracting(knownURLs))
+            }
             var origin = books[index].origin
             books[index].mangaInfo = MangaMetadata(author: details.manga.author, artist: details.manga.artist,
                 genre: details.manga.genre, status: details.manga.status, chapterCount: details.chapters.count,
@@ -401,6 +410,16 @@ final class ComicLibrary: ObservableObject {
             completed: old?.completed == true || (finished ?? (books[index].lastPage == books[index].pageCount - 1)), lastRead: books[index].lastRead,
             bookmarked: old?.bookmarked, bookmarkModifiedAt: old?.bookmarkModifiedAt, historyModifiedAt: books[index].historyModifiedAt))
         books[index].chapters = chapters
+        if chapters.last?.completed == true, old?.completed != true {
+            markDuplicates(at: index, completedURLs: [url])
+        }
+    }
+
+    private func markDuplicates(at index: Int, completedURLs: Set<String>) {
+        guard YokaiStorage.defaults.bool(forKey: DuplicateChapterProgress.existingKey),
+              let details = cachedDetails(for: books[index]) else { return }
+        books[index].chapters = DuplicateChapterProgress.marking(books[index].chapters ?? [],
+            chapters: details.chapters.map { ($0.url, $0.name, $0.number) }, completedURLs: completedURLs)
     }
 
     func markChapters(_ chapters: [SourceChapter], bookID: String, completed: Bool) {
@@ -416,7 +435,9 @@ final class ComicLibrary: ObservableObject {
                 books[index].progressRevision = UUID().uuidString
             }
         }
-        books[index].chapters = progress; books[index].modifiedAt = Date(); save()
+        books[index].chapters = progress
+        if completed { markDuplicates(at: index, completedURLs: Set(chapters.map(\.url))) }
+        books[index].modifiedAt = Date(); save()
     }
 
     func bookmarkChapter(_ chapter: SourceChapter, bookID: String) {

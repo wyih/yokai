@@ -54,6 +54,7 @@ struct ReaderView: View {
     @State private var requestedChapter: String?
     @State private var chapterError: String?
     @State private var configuringReader = false
+    @State private var showingChapters = false
     @State private var prefetchedChapter: String?
     private var readerSettings: MangaReaderSettings { library.books.first { $0.id == book.id }?.readerSettings ?? MangaReaderSettings() }
     private var mode: String {
@@ -209,7 +210,7 @@ struct ReaderView: View {
                 }.id(mode + "-" + String(doublePage) + "-" + (book.origin?.chapterURL ?? book.id))
             }
             if let requestedChapter {
-                VStack { ProgressView("正在加载下一章节…"); Button("取消跳转") { self.requestedChapter = nil } }
+                VStack { ProgressView("正在加载章节…"); Button("取消跳转") { self.requestedChapter = nil } }
                     .padding(20).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)).id(requestedChapter)
             }
             if customBrightness && brightness < 0 { Color.black.opacity(-brightness).ignoresSafeArea().allowsHitTesting(false) }
@@ -232,6 +233,12 @@ struct ReaderView: View {
         .onChange(of: geometry.size) { _, size in viewport = size }
         }
         .sheet(isPresented: $configuringTapZones) { NavigationStack { TapZoneSettingsView(initialMode: mode) } }
+        .sheet(isPresented: $showingChapters) {
+            ReaderChapterList(book: library.books.first { $0.id == book.id } ?? book, chapters: orderedChapters) { chapter in
+                showingChapters = false
+                if chapter.url != book.origin?.chapterURL { openChapter(chapter) }
+            }
+        }
         .sheet(isPresented: $configuringToolbar) {
             NavigationStack {
                 ReaderToolbarSettingsView().toolbar { Button("完成") { configuringToolbar = false } }
@@ -316,7 +323,7 @@ struct ReaderView: View {
     }
 
     private var readerIsInteractive: Bool {
-        readerVisible && scenePhase == .active && !configuringReader && !configuringTapZones && !configuringToolbar && shareImage == nil && textImage == nil && chapterWebPage == nil && !openingChapterWebPage && imageMessage == nil && chapterError == nil
+        readerVisible && scenePhase == .active && !showingChapters && !configuringReader && !configuringTapZones && !configuringToolbar && shareImage == nil && textImage == nil && chapterWebPage == nil && !openingChapterWebPage && imageMessage == nil && chapterError == nil
     }
     private var layoutBinding: Binding<String> {
         Binding(get: { readerSettings.layout ?? "default" }, set: { value in
@@ -341,6 +348,11 @@ struct ReaderView: View {
                     Text(book.title).font(.headline).lineLimit(1)
                     if let chapter = book.origin?.chapterTitle { Text(chapter).font(.caption).lineLimit(1) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
+                if !orderedChapters.isEmpty {
+                    Button { showingChapters = true } label: { Image(systemName: "list.bullet").frame(width: 44, height: 44) }
+                        .accessibilityLabel("章节目录").accessibilityIdentifier("readerChapters")
+                        .disabled(requestedChapter != nil)
+                }
                 Menu { readerMenu } label: { Image(systemName: "slider.horizontal.3").frame(width: 44, height: 44) }
                     .accessibilityLabel("阅读设置")
                     .accessibilityIdentifier("readerSettingsMenu")
@@ -636,6 +648,10 @@ struct ReaderView: View {
     }
     private func openAdjacent(_ direction: Int) {
         guard requestedChapter == nil, let chapter = adjacent(direction) else { return }
+        openChapter(chapter)
+    }
+    private func openChapter(_ chapter: SourceChapter) {
+        guard requestedChapter == nil else { return }
         let folder = library.chapterDirectory(bookID: book.id, chapterURL: chapter.url)
         if let data = try? Data(contentsOf: folder.appendingPathComponent("chapter.json")), let cached = try? JSONDecoder().decode(CachedChapter.self, from: data) { switchChapter(chapter, count: cached.pageCount); return }
         guard let origin = book.origin, let source = extensions.sources.first(where: { $0.id == origin.sourceID }) else { chapterError = "请安装此漫画的图源插件。"; return }
@@ -661,6 +677,46 @@ struct ReaderView: View {
         }
     }
 
+}
+
+private struct ReaderChapterList: View {
+    let book: ComicBook
+    let chapters: [SourceChapter]
+    let select: (SourceChapter) -> Void
+    @EnvironmentObject private var library: ComicLibrary
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    var body: some View {
+        NavigationStack {
+            ScrollViewReader { proxy in
+                List(chapters.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.scanlatorKey.localizedCaseInsensitiveContains(query) }) { chapter in
+                    let progress = book.chapters?.first { $0.url == chapter.url }
+                    let current = chapter.url == book.origin?.chapterURL
+                    Button { select(chapter) } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(chapter.name).foregroundStyle(current ? Color.accentColor : .primary)
+                                HStack(spacing: 8) {
+                                    if current { Text("正在阅读") }
+                                    if let scanlator = chapter.scanlator, !scanlator.isEmpty { Text(scanlator) }
+                                    if progress?.completed == true { Label("已读", systemImage: "checkmark") }
+                                    if library.isChapterDownloaded(bookID: book.id, chapterURL: chapter.url) { Label("已下载", systemImage: "arrow.down.circle.fill") }
+                                    if progress?.bookmarked == true { Label("书签", systemImage: "bookmark.fill") }
+                                }.font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                            if current { Image(systemName: "play.fill").foregroundStyle(Color.accentColor) }
+                        }.padding(.vertical, 3)
+                    }.id(chapter.url).accessibilityIdentifier("readerChapter." + chapter.url)
+                }
+                .onAppear { if let current = book.origin?.chapterURL { proxy.scrollTo(current, anchor: .center) } }
+                .searchable(text: $query, prompt: "搜索章节或汉化组")
+            }
+            .navigationTitle("章节目录").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+        }
+    }
 }
 
 private struct ReaderPageFrames: PreferenceKey {
@@ -810,7 +866,7 @@ private struct ComicPage: View {
     @State private var loadedIdentity = ""
 }
 
-private struct ZoomableImage: UIViewRepresentable {
+struct ZoomableImage: UIViewRepresentable {
     let image: UIImage
     let animation: ReaderImageAnimation?
     let imageTransform: ReaderImageTransform
@@ -879,7 +935,7 @@ private struct ZoomableImage: UIViewRepresentable {
     }
 }
 
-private final class ImageScrollView: UIScrollView {
+final class ImageScrollView: UIScrollView {
     let imageView = ReaderAnimatedImageView()
     var poster: UIImage?
     var scaleMode = "fit"

@@ -110,6 +110,8 @@ struct ReaderDefaultsView: View {
     @AppStorage("reader.skipRead", store: YokaiStorage.defaults) private var skipRead = false
     @AppStorage("reader.skipFiltered", store: YokaiStorage.defaults) private var skipFiltered = false
     @AppStorage("reader.skipDuplicate", store: YokaiStorage.defaults) private var skipDuplicate = true
+    @AppStorage(DuplicateChapterProgress.existingKey, store: YokaiStorage.defaults) private var markDuplicateExisting = false
+    @AppStorage(DuplicateChapterProgress.newKey, store: YokaiStorage.defaults) private var markDuplicateNew = false
     @AppStorage("reader.grayscale", store: YokaiStorage.defaults) private var grayscale = false
     @AppStorage("reader.inverted", store: YokaiStorage.defaults) private var inverted = false
     @AppStorage("reader.sidePadding", store: YokaiStorage.defaults) private var padding = 0
@@ -177,6 +179,12 @@ struct ReaderDefaultsView: View {
             Section("章节切换") {
                 Toggle("跳过已读章节", isOn: $skipRead); Toggle("跳过筛选隐藏的章节", isOn: $skipFiltered); Toggle("跳过相同编号的重复章节", isOn: $skipDuplicate)
                 Stepper("提前下载 \(ahead) 章", value: $ahead, in: 0...10)
+            }
+            Section {
+                Toggle("读完后标记同编号章节", isOn: $markDuplicateExisting)
+                Toggle("新增同编号章节沿用已读状态", isOn: $markDuplicateNew)
+            } header: { Text("重复章节自动已读") } footer: {
+                Text("按图源提供的章节编号匹配。开启后分别在读完或手动标记已读、刷新出新章节时生效。")
             }
         }.navigationTitle("阅读").navigationBarTitleDisplayMode(.inline)
             .onChange(of: layout) { _, _ in doublePage = false }

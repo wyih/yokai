@@ -2,6 +2,49 @@ import XCTest
 import UIKit
 
 final class HubFlowTests: XCTestCase {
+    func testReadingFeaturesAndDuplicateProgress() throws {
+        let app = launchSearchFixture("-YokaiReadingFeaturesCheck")
+        defer { app.terminate() }
+        app.buttons["书架"].firstMatch.tap()
+        let book = app.staticTexts["章节翻页验证"].firstMatch
+        XCTAssertTrue(book.waitForExistence(timeout: 10), app.debugDescription); book.tap()
+        let description = app.staticTexts["mangaDescription"]
+        XCTAssertTrue(description.waitForExistence(timeout: 5))
+        XCTAssertTrue(description.label.contains("重复章节检查通过"))
+        XCTAssertTrue(description.label.contains("• 封面可缩放"))
+        XCTAssertFalse(description.label.contains("**"))
+        app.buttons["mangaCoverPreview"].tap()
+        let cover = app.scrollViews["coverZoomView"].firstMatch
+        XCTAssertTrue(cover.waitForExistence(timeout: 5), app.debugDescription)
+        cover.doubleTap()
+        cover.pinch(withScale: 0.6, velocity: -1)
+        let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "cover-preview"; shot.lifetime = .keepAlways; add(shot)
+        app.buttons["closeCoverPreview"].tap()
+        app.buttons["更多"].tap()
+        app.swipeUp(); app.swipeUp()
+        let resume = app.buttons["detailsContinueReading"]
+        XCTAssertTrue(resume.isHittable)
+        resume.tap()
+        let page = app.staticTexts["readerPage"]
+        XCTAssertTrue(page.waitForExistence(timeout: 5))
+        app.buttons["readerChapters"].tap()
+        let row = app.buttons["readerChapter./reader-chapters/2"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(row.label.contains("已下载"))
+        row.tap()
+        let correct = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            page.exists && page.label == "1 / 6" && app.staticTexts["翻页验证第2话"].exists
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [correct], timeout: 5), .completed)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)).press(forDuration: 0.05,
+            thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)))
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "2 / 6"), object: page)], timeout: 5), .completed)
+        app.buttons["readerChapters"].tap()
+        XCTAssertTrue(app.buttons["readerChapter./reader-chapters/2"].label.contains("正在阅读"))
+        app.buttons["readerChapter./reader-chapters/1"].tap()
+        XCTAssertTrue(app.staticTexts["翻页验证第1话"].waitForExistence(timeout: 5))
+    }
+
     func testWebVerificationKeepsFreshCookies() throws {
         let app = launchSearchFixture("-YokaiCoverCacheCheck")
         defer { app.terminate() }

@@ -13,7 +13,8 @@ enum LocalUIFixture {
     private static var metadataFeaturesCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiMetadataFeaturesCheck") }
     private static var sourceFilterCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiLibrarySourceFilterCheck") }
     private static var readerCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiReaderInteractionCheck") }
-    private static var readerChapterCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiReaderChapterCheck") }
+    private static var readingFeaturesCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiReadingFeaturesCheck") }
+    private static var readerChapterCheck: Bool { readingFeaturesCheck || ProcessInfo.processInfo.arguments.contains("-YokaiReaderChapterCheck") }
     private static var readerImageCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiReaderImageCheck") }
     private static var historyCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiHistoryBatchCheck") }
     private static let metadataManga = SourceManga(
@@ -38,7 +39,21 @@ enum LocalUIFixture {
     @MainActor private static var failCookieSync = false
     @MainActor private static var exportedCookies: [[String: Any]] = []
     @MainActor private static var importedCookies: [[String: Any]] = []
+    private static var readingFeatureManga: SourceManga {
+        SourceManga(url: "/reader-chapters", title: "章节翻页验证", description:
+            "**重复章节检查通过**\n\n- 封面可缩放\n- [作品网站](https://example.org)\n\n" + (1...20).map { "简介段落\($0)：用于滚动检查底部阅读按钮。" }.joined(separator: "\n\n"))
+    }
     @MainActor static func response(_ action: String, _ arguments: [String: Any]) async throws -> Any {
+        if readingFeaturesCheck {
+            switch action {
+            case "load": return [["id": "reader-chapters", "name": "阅读功能验证", "lang": "zh", "package": "fixture.reading.features"]]
+            case "details":
+                let chapters = (1...2).map { SourceChapter(url: "/reader-chapters/\($0)", name: "翻页验证第\($0)话", number: Double($0), uploaded: 0) }
+                return try SourceEngine.object(SourceDetails(manga: readingFeatureManga, chapters: chapters.reversed()))
+            case "webViewInfo": return ["url": "https://example.org", "headers": [String: String]()]
+            default: throw SourceError.message("阅读功能验证仅使用已缓存章节。")
+            }
+        }
         if readerImageCheck {
             switch action {
             case "load": return [["id": "reader-image", "name": "图片验证图源", "lang": "zh", "package": "fixture.reader.image"]]
@@ -388,7 +403,7 @@ enum LocalUIFixture {
             library.acceptSync(state, captured: captured)
         }
         if readerCheck || readerChapterCheck || historyCheck {
-            do { try prepareReaderAndHistory(library: library) }
+            do { try await prepareReaderAndHistory(library: library) }
             catch { library.errorMessage = error.localizedDescription }
         }
         if metadataCheck || sourceFilterCheck {
@@ -484,15 +499,16 @@ enum LocalUIFixture {
             try JSONSerialization.data(withJSONObject: ["passed": true, "checks": ["CBZ extraction/dimensions after deleting original image files", "spread splitting", "split completion and completed chapter rereading", "native shelf/settings export", "native backup restore with chapter order"]]).write(to: output, options: .atomic)
         } catch { try? JSONSerialization.data(withJSONObject: ["passed": false, "error": error.localizedDescription]).write(to: output, options: .atomic) }
     }
-    @MainActor private static func prepareReaderAndHistory(library: ComicLibrary) throws {
+    @MainActor private static func prepareReaderAndHistory(library: ComicLibrary) async throws {
         let captured = library.snapshot()
         var state = captured
         var fixtures: [ComicBook] = []
         if readerChapterCheck {
+            if readingFeaturesCheck { try await checkDuplicateChapterUpdates() }
             YokaiStorage.defaults.set(true, forKey: "reader.animate")
             YokaiStorage.defaults.set(false, forKey: "reader.skipRead")
             let chapters = (1...2).map { SourceChapter(url: "/reader-chapters/\($0)", name: "翻页验证第\($0)话", number: Double($0), uploaded: 0) }
-            var book = ComicBook(id: ComicLibrary.hash("reader-chapters"), title: "章节翻页验证", format: .images, pageCount: 6, importedAt: Date())
+            var book = ComicBook(id: ComicLibrary.hash(readingFeaturesCheck ? "reader-chapters\n/reader-chapters" : "reader-chapters"), title: "章节翻页验证", format: .images, pageCount: 6, importedAt: Date())
             book.origin = ComicOrigin(sourceID: "reader-chapters", mangaURL: "/reader-chapters", chapterURL: chapters[0].url, chapterTitle: chapters[0].name)
             book.readerSettings = MangaReaderSettings(mode: "ltr", trimBorders: false, layout: "single")
             let format = UIGraphicsImageRendererFormat(); format.scale = 1
@@ -509,7 +525,14 @@ enum LocalUIFixture {
                 }
                 try JSONEncoder().encode(CachedChapter(chapter: chapter, pageCount: book.pageCount)).write(to: folder.appendingPathComponent("chapter.json"), options: .atomic)
             }
-            try library.cacheImportedDetails(SourceDetails(manga: SourceManga(url: "/reader-chapters", title: book.title), chapters: chapters.reversed()), bookID: book.id)
+            var manga = SourceManga(url: "/reader-chapters", title: book.title)
+            if readingFeaturesCheck {
+                manga = readingFeatureManga
+                let cover = library.root.appendingPathComponent(book.id).appendingPathComponent("cover.jpg")
+                let firstPage = library.chapterDirectory(bookID: book.id, chapterURL: chapters[0].url).appendingPathComponent("000000")
+                try Data(contentsOf: firstPage).write(to: cover, options: .atomic)
+            }
+            try library.cacheImportedDetails(SourceDetails(manga: manga, chapters: chapters.reversed()), bookID: book.id)
             fixtures.append(book)
         }
         if readerCheck {
@@ -550,9 +573,43 @@ enum LocalUIFixture {
             }
         }
         let ids = Set(fixtures.map(\.id))
-        state.books.removeAll { ids.contains($0.id) }
+        state.books.removeAll { ids.contains($0.id) || (readerChapterCheck && $0.title == "章节翻页验证") }
         state.books += fixtures
         library.acceptSync(state, captured: captured)
+    }
+    @MainActor private static func checkDuplicateChapterUpdates() async throws {
+        let defaults = YokaiStorage.defaults
+        let keys = [DuplicateChapterProgress.existingKey, DuplicateChapterProgress.newKey]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        defer { for (key, value) in zip(keys, saved) { if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) } } }
+        let folder = root.appendingPathComponent("duplicate-progress-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let library = ComicLibrary(root: folder)
+        let source = MangaSource(sourceID: "duplicates", name: "检查", lang: "zh", latest: false, baseURL: nil, package: "fixture.duplicates", error: nil)
+        let manga = SourceManga(url: "/book", title: "重复章节检查")
+        let chapters = ["a", "b", "new", "later"].map { SourceChapter(url: "/" + $0, name: $0, number: 1, uploaded: 0) }
+        let book = library.addOnline(manga, source: source)
+        for key in keys { defaults.set(false, forKey: key) }
+        library.saveDetails(SourceDetails(manga: manga, chapters: Array(chapters.prefix(2))), source: source)
+        _ = library.openChapter(chapters[0], pages: 6, bookID: book.id)
+        library.setPage(5, for: book.id, finished: true)
+        func completed(_ url: String) -> Bool { library.books.first?.chapters?.first { $0.url == url }?.completed == true }
+        guard !completed("/b") else { throw SourceError.message("关闭开关仍修改了重复章节") }
+        library.markChapters([chapters[0]], bookID: book.id, completed: false)
+        library.bookmarkChapter(chapters[1], bookID: book.id)
+        defaults.set(true, forKey: DuplicateChapterProgress.existingKey)
+        _ = library.openChapter(chapters[0], pages: 6, bookID: book.id)
+        library.setPage(5, for: book.id, finished: true)
+        guard completed("/b"), library.books.first?.chapters?.first(where: { $0.url == "/b" })?.bookmarked == true else { throw SourceError.message("读完后重复章节状态或书签错误") }
+        library.markChapters([chapters[1]], bookID: book.id, completed: false)
+        defaults.set(false, forKey: DuplicateChapterProgress.existingKey)
+        defaults.set(true, forKey: DuplicateChapterProgress.newKey)
+        library.saveDetails(SourceDetails(manga: manga, chapters: Array(chapters.prefix(3))), source: source)
+        guard completed("/new"), !completed("/b") else { throw SourceError.message("新增重复章节处理范围错误") }
+        defaults.set(false, forKey: DuplicateChapterProgress.newKey)
+        library.saveDetails(SourceDetails(manga: manga, chapters: chapters), source: source)
+        guard !completed("/later") else { throw SourceError.message("关闭新增开关后仍自动已读") }
+        try await library.flushPendingSaves()
     }
     @MainActor static func checkTachimanga(extensions: ExtensionStore) async {
         guard ProcessInfo.processInfo.arguments.contains("-YokaiTachimangaCheck") else { return }
