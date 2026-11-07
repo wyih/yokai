@@ -149,7 +149,15 @@ final class HubFlowTests: XCTestCase {
         try runQiyeScript("subscription-reading-script")
     }
 
-    private func runQiyeScript(_ name: String) throws {
+    func testLatestArticleExtraction() throws {
+        try runQiyeScript("articles-script")
+    }
+
+    func testLatestBackgroundArticleLoading() throws {
+        try runQiyeScript("article-loading-script", setup: "window.__articleLoadingURL='http://127.0.0.1:18143';")
+    }
+
+    private func runQiyeScript(_ name: String, setup: String = "") throws {
         let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: name, withExtension: "js"))
         let bootstrap = #"""
         const wait=async(fn,ms=45000)=>{const until=Date.now()+ms;while(Date.now()<until){if(await fn())return;await new Promise(r=>setTimeout(r,150))}throw Error('Wait timed out: '+fn.toString())};
@@ -158,7 +166,7 @@ final class HubFlowTests: XCTestCase {
         """#
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing"]
-        app.launchEnvironment["QIYE_TEST_SCRIPT"] = bootstrap + (try String(contentsOf: url, encoding: .utf8))
+        app.launchEnvironment["QIYE_TEST_SCRIPT"] = bootstrap + setup + (try String(contentsOf: url, encoding: .utf8))
         app.launch()
         defer { app.terminate() }
         let result = app.staticTexts["qiye-test-result"]
