@@ -120,6 +120,7 @@ struct ReaderDefaultsView: View {
     @AppStorage("reader.longTap", store: YokaiStorage.defaults) private var longTap = true
     @AppStorage("reader.webtoonDoubleTap", store: YokaiStorage.defaults) private var doubleTap = true
     @AppStorage("reader.webtoonZoomOut", store: YokaiStorage.defaults) private var zoomOut = false
+    @AppStorage("reader.panBeforeTurn", store: YokaiStorage.defaults) private var panBeforeTurn = true
     @AppStorage("readerBackground", store: YokaiStorage.defaults) private var background = "black"
     @AppStorage("autoScrollSpeed", store: YokaiStorage.defaults) private var speed = 40.0
     @AppStorage("reader.holdToScroll", store: YokaiStorage.defaults) private var holdToScroll = true
@@ -134,6 +135,7 @@ struct ReaderDefaultsView: View {
                 Picker("图片缩放", selection: $scale) { ReaderScaleChoices() }
                 Picker("放大起始位置", selection: $zoomStart) { Text("跟随阅读方向").tag("auto"); Text("左侧").tag("left"); Text("右侧").tag("right"); Text("中间").tag("center") }
                 Toggle("翻页动画", isOn: $animate)
+                Toggle("点按先平移再翻页", isOn: $panBeforeTurn)
                 Picker("页面布局", selection: $layout) { ReaderLayoutChoices() }
                 if layout == "automatic" { Toggle("竖屏时拆分横向跨页", isOn: $splitPortrait) }
                 Toggle("交换跨页顺序", isOn: $invertDoublePages)
@@ -150,7 +152,7 @@ struct ReaderDefaultsView: View {
                 Toggle("全屏", isOn: $fullscreen)
                 #endif
                 Toggle("显示页码", isOn: $numbers)
-                Picker("背景", selection: $background) { Text("黑色").tag("black"); Text("灰色").tag("gray"); Text("纸色").tag("paper"); Text("白色").tag("white") }
+                Picker("背景", selection: $background) { Text("智能背景").tag("smart"); Text("黑色").tag("black"); Text("灰色").tag("gray"); Text("纸色").tag("paper"); Text("白色").tag("white") }
                 #if !targetEnvironment(macCatalyst)
                 Toggle("自定义亮度", isOn: $customBrightness)
                 if customBrightness {

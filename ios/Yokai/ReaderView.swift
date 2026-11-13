@@ -51,6 +51,13 @@ struct ReaderView: View {
     #if targetEnvironment(macCatalyst)
     @State private var desktopActivity = DesktopReaderActivity()
     #endif
+    @AppStorage("reader.panBeforeTurn", store: YokaiStorage.defaults) private var panBeforeTurn = true
+    @State private var pageBackgrounds: [String: UIColor] = [:]
+    private var smartBackground: UIColor { pageBackgrounds[directory.path + "/" + String(page ?? book.lastPage)] ?? .black }
+    private var lightBackground: Bool {
+        if background == "smart" { return ReaderSmartBackground.isLight(smartBackground) != inverted }
+        return background == "white" || background == "paper"
+    }
     @State private var requestedChapter: String?
     @State private var chapterError: String?
     @State private var configuringReader = false
@@ -112,7 +119,10 @@ struct ReaderView: View {
     var body: some View {
         GeometryReader { geometry in
         ZStack {
-            ReaderAppearance.color(background).ignoresSafeArea()
+            Group {
+                if background == "smart" { Color(uiColor: smartBackground).modifier(ReaderImageFilter(grayscale: grayscale, inverted: inverted)).modifier(ReaderColorFilter()) }
+                else { ReaderAppearance.color(background) }
+            }.ignoresSafeArea()
             if continuous {
                 if sizeScanDirectory == directory.path {
                     ScrollViewReader { proxy in
@@ -128,6 +138,7 @@ struct ReaderView: View {
                                               placeholderAspect: continuousAspect(index),
                                               stackSpread: webtoonSplit, rightFirst: webtoonRightFirst, spreadGap: mode == "vertical" ? 15 : 0,
                                               onDoubleTap: { if webtoonDoubleTap { continuousZoom = continuousZoom > 1 ? 1 : 2.5 } },
+                                              onBackground: { pageBackgrounds[$0] = $1 },
                                               onAction: imageAction, onTap: { tap($0, size: geometry.size) })
                                         // Android WebtoonPageHolder uses WRAP_CONTENT and a
                                         // 15dp bottom margin only for continuous vertical mode.
@@ -201,6 +212,15 @@ struct ReaderView: View {
                                       online: book.origin != nil,
                                       onRetry: { retryPage(segment.page) }, onOpenWeb: canOpenChapterWebPage ? openChapterWebPage : nil,
                                       half: segment.half,
+                                      panDirection: { location in
+                                          guard panBeforeTurn else { return nil }
+                                          let point = CGPoint(x: location.x - geometry.frame(in: .global).minX, y: location.y - geometry.frame(in: .global).minY)
+                                          let action = tapAction(point, size: geometry.size)
+                                          guard action == "next" || action == "previous" else { return nil }
+                                          let step: CGFloat = action == "next" ? 1 : -1
+                                          return mode == "verticalPager" ? CGVector(dx: 0, dy: step) : CGVector(dx: mode == "rtl" ? -step : step, dy: 0)
+                                      },
+                                      onBackground: { pageBackgrounds[$0] = $1 },
                                       onAction: imageAction,
                                       onTap: { tap(CGPoint(x: $0.x - geometry.frame(in: .global).minX, y: $0.y - geometry.frame(in: .global).minY), size: geometry.size) })
                             }
@@ -247,7 +267,7 @@ struct ReaderView: View {
         .sheet(item: $shareImage) { ImageShareSheet(image: $0.image) }
         .sheet(item: $textImage) { ReaderImageTextView(image: $0.image) }
         .sheet(item: $chapterWebPage) { SourceLoginView(source: $0.source, address: $0.address) }
-        .preferredColorScheme(background == "white" || background == "paper" ? .light : .dark)
+        .preferredColorScheme(lightBackground ? .light : .dark)
         .statusBarHidden(fullscreen && !controls)
         .sheet(isPresented: $configuringReader) { NavigationStack { MangaReaderSettingsView(bookID: book.id) } }
         .alert("章节加载失败", isPresented: Binding(get: { chapterError != nil }, set: { if !$0 { chapterError = nil } })) { Button("好", role: .cancel) {} } message: { Text(chapterError ?? "") }
@@ -400,10 +420,10 @@ struct ReaderView: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 12).padding(.vertical, 8).frame(maxWidth: .infinity)
-        .foregroundStyle(background == "white" || background == "paper" ? Color.black : Color.white)
+        .foregroundStyle(lightBackground ? Color.black : Color.white)
     }
     @ViewBuilder private var backgroundChoices: some View {
-        Text("黑色").tag("black"); Text("灰色").tag("gray"); Text("纸色").tag("paper"); Text("白色").tag("white")
+        Text("智能背景").tag("smart"); Text("黑色").tag("black"); Text("灰色").tag("gray"); Text("纸色").tag("paper"); Text("白色").tag("white")
     }
     @ViewBuilder private var readerMenu: some View {
         Picker("本书阅读方式", selection: modeBinding) { Text("跟随默认").tag("default"); ReaderModeChoices() }
@@ -412,6 +432,7 @@ struct ReaderView: View {
         Toggle("裁剪边框", isOn: trimBinding)
         Button("本书阅读设置") { configuringReader = true }
         Picker("背景", selection: $background) { backgroundChoices }
+        if !continuous { Toggle("点按先平移再翻页", isOn: $panBeforeTurn) }
         if continuous { Toggle("自动滚动", isOn: $autoScroll) }
         Button("点按区域设置") { configuringTapZones = true }
         Button("自定义工具栏") { configuringToolbar = true }
@@ -598,14 +619,17 @@ struct ReaderView: View {
         if identity == scanID && !Task.isCancelled { pageImageSizes = sizes; sizeScanDirectory = folder.path }
     }
 
-    private func tap(_ location: CGPoint, size: CGSize) {
+    private func tapAction(_ location: CGPoint, size: CGSize) -> String {
         let continuous = self.continuous
         let preset = continuous ? webtoonPreset : pagerPreset
-        let action = TapZones.action(at: location, size: size, preset: preset, continuous: continuous,
+        return TapZones.action(at: location, size: size, preset: preset, continuous: continuous,
                                      invert: continuous ? webtoonInvert : pagerInvert,
                                      layout: tapPreferences.layout(continuous: continuous).wrappedValue,
                                      actions: tapPreferences.actions(continuous: continuous).wrappedValue,
                                      reversed: !continuous && mode == "rtl" && (preset != "custom" || tapPreferences.followDirection(continuous: continuous).wrappedValue))
+    }
+    private func tap(_ location: CGPoint, size: CGSize) {
+        let action = tapAction(location, size: size)
         #if DEBUG && targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("-YokaiReaderTrace") {
             FileHandle.standardError.write(Data("Reader tap \(location) \(size) action \(action) page \(page ?? -1) anchor \(scrollTarget ?? -1) request \(scrollRequest)\n".utf8))
@@ -745,13 +769,17 @@ private struct ComicPage: View {
     var onOpenWeb: (() -> Void)?
     var placeholderAspect: CGFloat?
     var half: Int?
+    var panDirection: ((CGPoint) -> CGVector?)?
     var stackSpread = false
     var rightFirst = false
     var spreadGap: CGFloat = 0
     var onDoubleTap: () -> Void = {}
+    var onBackground: (String, UIColor) -> Void = { _, _ in }
     let onAction: (String, UIImage) -> Void
     let onTap: (CGPoint) -> Void
     @AppStorage("reader.longTap", store: YokaiStorage.defaults) private var longTap = true
+    @AppStorage("readerBackground", store: YokaiStorage.defaults) private var background = "black"
+    @State private var smartBackground = UIColor.black
     @State private var image: UIImage?
     @State private var originalImage: UIImage?
     @State private var animation: ReaderImageAnimation?
@@ -768,7 +796,7 @@ private struct ComicPage: View {
                 Group {
                     if fit {
                         ZoomableImage(image: image, animation: animation, imageTransform: imageTransform,
-                                      playing: visible && scenePhase == .active, scale: scale, zoomStart: zoomStart, onTap: onTap)
+                                      playing: visible && scenePhase == .active, scale: scale, zoomStart: zoomStart, panDirection: panDirection, onTap: onTap)
                     } else {
                         Group {
                             if let animation {
@@ -820,6 +848,7 @@ private struct ComicPage: View {
                     .foregroundStyle(.primary).background(.regularMaterial)
             }
         }
+        .background(background == "smart" ? Color(uiColor: smartBackground) : .clear)
         .task(id: "\(directory.path)-\(index)-\(trimBorders)-\(cacheVersion)-\(reloadVersion)-\(downloadState?.rawValue ?? "")-\(document?.pageCount ?? 0)-\(half ?? -1)-\(stackSpread)-\(rightFirst)-\(spreadGap)") {
             let identity = "\(directory.path)/\(index)-\(half ?? -1)-\(stackSpread)-\(rightFirst)-\(spreadGap)"
             guard image == nil || appliedTrim != trimBorders || loadedIdentity != identity else { return }
@@ -849,9 +878,13 @@ private struct ComicPage: View {
                     let arranged = transform.apply(to: current)
                     // Keep one crop rectangle throughout an animation to prevent layout jumps.
                     if trimBorders { transform.crop = arranged.borderCropRect() }
-                    return (transform.apply(to: current), transform)
+                    let rendered = transform.apply(to: current)
+                    return (rendered, transform, ReaderSmartBackground.color(for: rendered))
                 }.value
                 loaded = result.0; transform = result.1
+                guard !Task.isCancelled else { return }
+                smartBackground = result.2
+                onBackground(directory.path + "/" + String(index), result.2)
             }
             guard !Task.isCancelled else { return }
             image = loaded; originalImage = original; failure = loaded == nil ? loadFailure : nil
@@ -873,6 +906,7 @@ struct ZoomableImage: UIViewRepresentable {
     let playing: Bool
     var scale = "fit"
     var zoomStart = "center"
+    var panDirection: ((CGPoint) -> CGVector?)?
     let onTap: (CGPoint) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -893,11 +927,13 @@ struct ZoomableImage: UIViewRepresentable {
         let single = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.singleTap(_:)))
         single.require(toFail: tap)
         view.addGestureRecognizer(single)
+        context.coordinator.panDirection = panDirection
         context.coordinator.onTap = onTap
         return view
     }
 
     func updateUIView(_ view: ImageScrollView, context: Context) {
+        context.coordinator.panDirection = panDirection
         context.coordinator.onTap = onTap
         let changed = view.poster !== image || view.scaleMode != scale || view.zoomStart != zoomStart
         view.poster = image
@@ -913,8 +949,15 @@ struct ZoomableImage: UIViewRepresentable {
     final class Coordinator: NSObject, UIScrollViewDelegate {
         weak var imageView: UIImageView?
         var onTap: ((CGPoint) -> Void)?
+        var panDirection: ((CGPoint) -> CGVector?)?
         @objc func singleTap(_ gesture: UITapGestureRecognizer) {
-            onTap?(gesture.location(in: gesture.view?.window))
+            let point = gesture.location(in: gesture.view?.window)
+            if let scroll = gesture.view as? UIScrollView, let direction = panDirection?(point),
+               let offset = PagePan.offset(current: scroll.contentOffset, content: scroll.contentSize, viewport: scroll.bounds.size, direction: direction) {
+                scroll.setContentOffset(offset, animated: YokaiStorage.defaults.object(forKey: "reader.animate") as? Bool ?? true)
+                return
+            }
+            onTap?(point)
         }
         func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
         func scrollViewDidZoom(_ scrollView: UIScrollView) {

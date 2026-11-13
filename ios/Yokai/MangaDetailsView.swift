@@ -566,15 +566,6 @@ struct SourceDetailsRefreshSettingsView: View {
     }
 }
 
-enum MangaGenres {
-    static func tags(_ genre: String) -> [String] {
-        var seen = Set<String>()
-        return genre.components(separatedBy: CharacterSet(charactersIn: ",，\n"))
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && seen.insert($0).inserted }
-    }
-}
-
 private struct MangaGenreView: View {
     let genre: String
     let search: (String) -> Void

@@ -18,6 +18,7 @@ struct LibraryDisplayOptions: Codable, Equatable {
     var showCount = true
     // Optional so settings saved before source filters still decode unchanged.
     var sourceFilters: [String: String]?
+    var tagFilter: LibraryTagFilter?
     var hasSourceFilters: Bool { sourceFilters?.values.contains { $0 == "yes" || $0 == "no" } == true }
     func sourceFilter(_ sourceID: String?) -> String {
         sourceFilters?[sourceID.map { "source:" + $0 } ?? "local"] ?? "all"
@@ -71,6 +72,7 @@ struct LibraryView: View {
             return (query.isEmpty || text.localizedCaseInsensitiveContains(query))
                 && (category == "all" || (category == "default" ? (book.categories ?? []).isEmpty : (book.categories ?? []).contains(category)))
                 && options.acceptsSource(book.origin?.sourceID)
+                && (options.tagFilter?.accepts(book.mangaInfo?.genre) ?? true)
                 && accepts(options.downloaded, m.downloaded > 0)
                 && accepts(options.unread, book.origin == nil ? book.lastPage < book.pageCount - 1 : m.unread > 0)
                 && accepts(options.started, book.lastRead != nil || (book.chapters ?? []).contains { $0.completed || $0.lastPage > 0 })
@@ -123,6 +125,13 @@ struct LibraryView: View {
                         Button("图源筛选已启用", systemImage: "line.3.horizontal.decrease") { showingOptions = true }
                         Spacer()
                         Button("清除图源筛选") { options.sourceFilters = nil }
+                    }.font(.caption).padding(.horizontal).padding(.vertical, 8)
+                }
+                if options.tagFilter?.isActive == true {
+                    HStack {
+                        Button("标签筛选已启用", systemImage: "tag") { showingOptions = true }
+                        Spacer()
+                        Button("清除标签筛选") { options.tagFilter = nil }
                     }.font(.caption).padding(.horizontal).padding(.vertical, 8)
                 }
                 if shelf.isEmpty {
@@ -353,6 +362,15 @@ struct LibraryDisplaySettingsView: View {
             } footer: {
                 Text("可包含或排除多个图源。选择包含后，仅显示这些图源的漫画；未选择包含时显示所有未被排除的图源。图源筛选与分类、未读等条件同时生效。")
             }
+            Section {
+                NavigationLink("标签组合筛选") { LibraryTagFilterView(filter: Binding(
+                    get: { value.wrappedValue.tagFilter ?? LibraryTagFilter() },
+                    set: { value.wrappedValue.tagFilter = $0 }
+                )) }
+                if value.wrappedValue.tagFilter?.isActive == true {
+                    Button("清除标签筛选") { value.wrappedValue.tagFilter = nil }
+                }
+            }
             Section("排序") {
                 Picker("排序方式", selection: value.sort) {
                     Text("漫画名称").tag("title"); Text("最近阅读").tag("recent"); Text("最新章节").tag("latest")
@@ -389,6 +407,41 @@ struct LibraryDisplaySettingsView: View {
         }
     }
     private func filter(_ name: String, _ binding: Binding<String>) -> some View { Picker(name, selection: binding) { Text("全部").tag("all"); Text("仅显示").tag("yes"); Text("排除").tag("no") } }
+}
+
+struct LibraryTagFilterView: View {
+    @EnvironmentObject private var library: ComicLibrary
+    @Binding var filter: LibraryTagFilter
+    @State private var query = ""
+    private var tags: [String] {
+        let shelfTags = library.books.filter { $0.inLibrary != false }.flatMap { MangaGenres.tags($0.mangaInfo?.genre ?? "") }
+        return Set(shelfTags + Array(filter.states.keys)).filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+    var body: some View {
+        Form {
+            Section {
+                Picker("包含条件", selection: $filter.matchAll) {
+                    Text("同时包含全部标签").tag(true)
+                    Text("包含任一标签").tag(false)
+                }.accessibilityIdentifier("tagMatchMode")
+                Button("清除标签筛选") { filter = LibraryTagFilter() }.disabled(!filter.isActive)
+            } footer: {
+                Text("排除标签始终生效。标签条件与图源、分类及未读等筛选同时生效。")
+            }
+            Section("书架标签") {
+                if tags.isEmpty { Text("没有符合条件的标签").foregroundStyle(.secondary) }
+                ForEach(tags, id: \.self) { tag in
+                    Picker(tag, selection: Binding(get: { filter.states[tag] ?? "all" }, set: {
+                        if $0 == "all" { filter.states.removeValue(forKey: tag) } else { filter.states[tag] = $0 }
+                    })) {
+                        Text("不限").tag("all"); Text("包含").tag("yes"); Text("排除").tag("no")
+                    }.accessibilityIdentifier("tagFilter." + tag)
+                }
+            }
+        }.navigationTitle("标签组合筛选").navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $query, prompt: "查找标签")
+    }
 }
 
 struct CategoryManagerView: View {

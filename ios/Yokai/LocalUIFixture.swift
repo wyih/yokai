@@ -13,8 +13,9 @@ enum LocalUIFixture {
     private static var metadataFeaturesCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiMetadataFeaturesCheck") }
     private static var sourceFilterCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiLibrarySourceFilterCheck") }
     private static var readerCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiReaderInteractionCheck") }
+    private static var priorityFeaturesCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiPriorityFeaturesCheck") }
     private static var readingFeaturesCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiReadingFeaturesCheck") }
-    private static var readerChapterCheck: Bool { readingFeaturesCheck || ProcessInfo.processInfo.arguments.contains("-YokaiReaderChapterCheck") }
+    private static var readerChapterCheck: Bool { priorityFeaturesCheck || readingFeaturesCheck || ProcessInfo.processInfo.arguments.contains("-YokaiReaderChapterCheck") }
     private static var readerImageCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiReaderImageCheck") }
     private static var historyCheck: Bool { ProcessInfo.processInfo.arguments.contains("-YokaiHistoryBatchCheck") }
     private static let metadataManga = SourceManga(
@@ -503,6 +504,39 @@ enum LocalUIFixture {
         let captured = library.snapshot()
         var state = captured
         var fixtures: [ComicBook] = []
+        if priorityFeaturesCheck {
+            var options = LibraryDisplayOptions()
+            options.display = "list"; options.grouping = "none"; options.sort = "title"; options.save()
+            var legacy = try JSONSerialization.jsonObject(with: JSONEncoder().encode(options)) as! [String: Any]
+            legacy.removeValue(forKey: "tagFilter"); legacy["sort"] = "unread"
+            let restored = try JSONDecoder().decode(LibraryDisplayOptions.self, from: JSONSerialization.data(withJSONObject: legacy))
+            guard restored.sort == "unread", restored.tagFilter == nil else { throw SourceError.message("旧筛选设置读取失败") }
+            let format = UIGraphicsImageRendererFormat(); format.scale = 1
+            for edge in [UIColor.white, .black, .red] {
+                let image = UIGraphicsImageRenderer(size: CGSize(width: 160, height: 240), format: format).image { context in
+                    edge.setFill(); context.fill(CGRect(x: 0, y: 0, width: 160, height: 240))
+                    UIColor.blue.setFill(); context.fill(CGRect(x: 12, y: 12, width: 136, height: 216))
+                }
+                var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+                ReaderSmartBackground.color(for: image).getRed(&r, green: &g, blue: &b, alpha: &a)
+                var er: CGFloat = 0, eg: CGFloat = 0, eb: CGFloat = 0, ea: CGFloat = 0
+                edge.getRed(&er, green: &eg, blue: &eb, alpha: &ea)
+                guard abs(r-er) < 0.02, abs(g-eg) < 0.02, abs(b-eb) < 0.02 else { throw SourceError.message("智能背景边缘取色失败") }
+            }
+            for (name, genre) in [("冒险科幻", "冒险，科幻"), ("冒险恋爱", "冒险,恋爱"), ("无标签", "")] {
+                var book = ComicBook(id: ComicLibrary.hash("tag-filter-" + name), title: "标签验证：" + name, format: .images, pageCount: 1, importedAt: Date())
+                book.mangaInfo = MangaMetadata(genre: genre, chapterCount: 0, latestUpload: 0, fetchedAt: Date())
+                fixtures.append(book)
+            }
+            YokaiStorage.defaults.set("smart", forKey: "readerBackground")
+            YokaiStorage.defaults.set(true, forKey: "reader.panBeforeTurn")
+            YokaiStorage.defaults.set("default", forKey: "tapZones.pager.preset")
+            YokaiStorage.defaults.set("none", forKey: "tapZones.pager.invert")
+            YokaiStorage.defaults.set("fit", forKey: "reader.scale")
+            YokaiStorage.defaults.set("auto", forKey: "reader.zoomStart")
+            YokaiStorage.defaults.set(false, forKey: "reader.inverted")
+            YokaiStorage.defaults.set(false, forKey: "reader.grayscale")
+        }
         if readerChapterCheck {
             if readingFeaturesCheck { try await checkDuplicateChapterUpdates() }
             YokaiStorage.defaults.set(true, forKey: "reader.animate")
@@ -510,7 +544,7 @@ enum LocalUIFixture {
             let chapters = (1...2).map { SourceChapter(url: "/reader-chapters/\($0)", name: "翻页验证第\($0)话", number: Double($0), uploaded: 0) }
             var book = ComicBook(id: ComicLibrary.hash(readingFeaturesCheck ? "reader-chapters\n/reader-chapters" : "reader-chapters"), title: "章节翻页验证", format: .images, pageCount: 6, importedAt: Date())
             book.origin = ComicOrigin(sourceID: "reader-chapters", mangaURL: "/reader-chapters", chapterURL: chapters[0].url, chapterTitle: chapters[0].name)
-            book.readerSettings = MangaReaderSettings(mode: "ltr", trimBorders: false, layout: "single")
+            book.readerSettings = MangaReaderSettings(mode: priorityFeaturesCheck ? (ProcessInfo.processInfo.environment["YOKAI_PAN_MODE"] ?? "ltr") : "ltr", trimBorders: false, layout: "single")
             let format = UIGraphicsImageRendererFormat(); format.scale = 1
             for (chapterIndex, chapter) in chapters.enumerated() {
                 let folder = library.chapterDirectory(bookID: book.id, chapterURL: chapter.url)

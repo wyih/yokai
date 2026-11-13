@@ -2,6 +2,83 @@ import XCTest
 import UIKit
 
 final class HubFlowTests: XCTestCase {
+    func testLibraryTagCombinations() throws {
+        let app = launchSearchFixture("-YokaiPriorityFeaturesCheck")
+        defer { app.terminate() }
+        app.buttons["书架"].firstMatch.tap()
+        let both = "标签验证：冒险科幻", excluded = "标签验证：冒险恋爱", empty = "标签验证：无标签"
+        assertShelfTitles(app, visible: [both, excluded, empty])
+        func openTags() {
+            app.buttons["筛选与显示"].tap()
+            let link = app.buttons["标签组合筛选"]
+            for _ in 0..<5 { if link.isHittable { break }; app.swipeUp() }
+            link.tap()
+        }
+        func choose(_ id: String, _ label: String) {
+            let button = app.buttons[id]
+            XCTAssertTrue(button.waitForExistence(timeout: 5), app.debugDescription)
+            button.tap(); app.buttons[label].tap()
+        }
+        func done() {
+            app.navigationBars["标签组合筛选"].buttons.element(boundBy: 0).tap()
+            app.buttons["完成"].tap()
+        }
+        openTags()
+        choose("tagFilter.冒险", "包含"); choose("tagFilter.科幻", "包含")
+        done()
+        assertShelfTitles(app, visible: [both], hidden: [excluded, empty])
+        openTags()
+        choose("tagMatchMode", "包含任一标签")
+        done()
+        assertShelfTitles(app, visible: [both, excluded], hidden: [empty])
+        openTags(); choose("tagFilter.恋爱", "排除"); done()
+        assertShelfTitles(app, visible: [both], hidden: [excluded, empty])
+        app.buttons["清除标签筛选"].tap()
+        assertShelfTitles(app, visible: [both, excluded, empty])
+    }
+
+    func testPanBeforeTurningLTR() throws { try checkPanBeforeTurning("ltr") }
+    func testPanBeforeTurningRTL() throws { try checkPanBeforeTurning("rtl") }
+    func testPanBeforeTurningVertical() throws { try checkPanBeforeTurning("verticalPager") }
+
+    private func checkPanBeforeTurning(_ mode: String) throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-YokaiLocalUIFixture", "-YokaiPriorityFeaturesCheck"]
+        app.launchEnvironment["YOKAI_PAN_MODE"] = mode
+        app.launch()
+        defer { app.terminate() }
+        XCTAssertTrue(app.buttons["Yōkai · 漫画"].waitForExistence(timeout: 15))
+        app.buttons["Yōkai · 漫画"].tap()
+        app.buttons["书架"].firstMatch.tap()
+        let book = app.staticTexts["章节翻页验证"].firstMatch
+        XCTAssertTrue(book.waitForExistence(timeout: 10), app.debugDescription); book.tap()
+        app.buttons["开始阅读"].tap()
+        let page = app.staticTexts["readerPage"]
+        XCTAssertTrue(page.waitForExistence(timeout: 5)); XCTAssertEqual(page.label, "1 / 6")
+        let center = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let next = app.coordinate(withNormalizedOffset: CGVector(dx: mode == "rtl" ? 0.15 : 0.85, dy: 0.5))
+        let background = XCTAttachment(screenshot: app.screenshot()); background.name = "smart-background-" + mode; background.lifetime = .keepAlways; add(background)
+        center.doubleTap()
+        next.tap()
+        let unexpectedTurn = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != %@", "1 / 6"), object: page)
+        unexpectedTurn.isInverted = true
+        XCTAssertEqual(XCTWaiter.wait(for: [unexpectedTurn], timeout: 1), .completed)
+        XCTAssertEqual(page.label, "1 / 6", "The first tap must pan the enlarged image")
+        for _ in 0..<8 {
+            if page.label == "2 / 6" { break }
+            next.tap()
+            let turned = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "2 / 6"), object: page)
+            if XCTWaiter.wait(for: [turned], timeout: 1) == .completed { break }
+        }
+        XCTAssertEqual(page.label, "2 / 6", "Tapping at the edge must advance")
+        app.buttons["readerSettingsMenu"].tap()
+        app.buttons["点按先平移再翻页"].tap()
+        center.doubleTap()
+        next.tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "3 / 6"), object: page)], timeout: 3), .completed)
+        XCTAssertEqual(page.label, "3 / 6", "Disabling pan must restore immediate page turns")
+    }
+
     func testReadingFeaturesAndDuplicateProgress() throws {
         let app = launchSearchFixture("-YokaiReadingFeaturesCheck")
         defer { app.terminate() }
@@ -155,6 +232,10 @@ final class HubFlowTests: XCTestCase {
 
     func testLatestBackgroundArticleLoading() throws {
         try runQiyeScript("article-loading-script", setup: "window.__articleLoadingURL='http://127.0.0.1:18143';")
+    }
+
+    func testQiyeShelfCollectionsAndPrivacy() throws {
+        try runQiyeScript("shelf-script")
     }
 
     private func runQiyeScript(_ name: String, setup: String = "") throws {
